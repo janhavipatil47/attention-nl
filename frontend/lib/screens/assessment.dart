@@ -1,8 +1,26 @@
 import 'package:flutter/material.dart';
-import 'report.dart';
+import '../services/questionnaire_service.dart';
+import 'childAssessment.dart';
 
-class SmartAssessmentScreen extends StatelessWidget {
-  const SmartAssessmentScreen({super.key});
+class SmartAssessmentScreen extends StatefulWidget {
+  const SmartAssessmentScreen({super.key, this.userId = 'anonymous_user'});
+
+  final String userId;
+
+  @override
+  State<SmartAssessmentScreen> createState() => _SmartAssessmentScreenState();
+}
+
+class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
+  final Map<int, int> _responses = <int, int>{};
+  final TextEditingController _observationsController = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _observationsController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,28 +51,26 @@ class SmartAssessmentScreen extends StatelessWidget {
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
                 ),
                 const SizedBox(height: 25),
-                
-                // Question 1 (Pink)
-                _buildQuestionCard(
-                  color: const Color(0xFFFFF0F3),
-                  number: "1",
-                  question: "Does your child get distracted easily?",
-                  options: ["Never", "Sometimes", "Often"],
-                  selectedIndex: 1,
-                  showEmojis: true,
-                ),
+                ...List.generate(QuestionnaireService.questions.length, (index) {
+                  final cardColor = index.isEven
+                      ? const Color(0xFFFFF0F3)
+                      : const Color(0xFFF0FFF4);
 
-                // Quick Activity (Yellow)
-                _buildActivityCard(),
-
-                // Question 3 (Green)
-                _buildQuestionCard(
-                  color: const Color(0xFFF0FFF4),
-                  number: "3",
-                  question: "Does your child take more time than others to complete tasks?",
-                  options: ["Rarely", "Sometimes", "Often"],
-                  selectedIndex: 1,
-                ),
+                  return _buildQuestionCard(
+                    color: cardColor,
+                    number: '${index + 1}',
+                    question: QuestionnaireService.questions[index],
+                    options: QuestionnaireService.responseOptions,
+                    selectedIndex: _responses[index],
+                    onOptionSelected: (selectedOption) {
+                      setState(() {
+                        _responses[index] = selectedOption;
+                      });
+                    },
+                    showEmojis: false,
+                  );
+                }),
+                _buildObservationsCard(),
                 
                 const SizedBox(height: 20),
                 const Text(
@@ -92,6 +108,7 @@ class SmartAssessmentScreen extends StatelessWidget {
     required String question, 
     required List<String> options, 
     int? selectedIndex,
+    required ValueChanged<int> onOptionSelected,
     bool showEmojis = false,
   }) {
     return Container(
@@ -112,21 +129,25 @@ class SmartAssessmentScreen extends StatelessWidget {
           const SizedBox(height: 15),
           ...List.generate(options.length, (index) {
             bool isSelected = index == selectedIndex;
-            return Container(
-              margin: const EdgeInsets.only(bottom: 10),
-              padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
-                border: Border.all(color: isSelected ? Colors.pinkAccent : Colors.transparent, width: 2),
-              ),
-              child: Row(
-                children: [
-                  if (showEmojis) Text(["😄", "😐", "😫"][index] + " "),
-                  Text(options[index], style: TextStyle(color: isSelected ? Colors.black87 : Colors.black45)),
-                  const Spacer(),
-                  if (isSelected) const Icon(Icons.check, size: 18, color: Colors.pinkAccent),
-                ],
+            return InkWell(
+              borderRadius: BorderRadius.circular(15),
+              onTap: () => onOptionSelected(index),
+              child: Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: isSelected ? Colors.pinkAccent : Colors.transparent, width: 2),
+                ),
+                child: Row(
+                  children: [
+                    if (showEmojis) Text(_emojiForOption(index) + ' '),
+                    Text(options[index], style: TextStyle(color: isSelected ? Colors.black87 : Colors.black45)),
+                    const Spacer(),
+                    if (isSelected) const Icon(Icons.check, size: 18, color: Colors.pinkAccent),
+                  ],
+                ),
               ),
             );
           }),
@@ -135,48 +156,12 @@ class SmartAssessmentScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildActivityCard() {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFFFFF9E6), borderRadius: BorderRadius.circular(25)),
-      child: Column(
-        children: [
-          Row(
-            children: const [
-              Icon(Icons.videogame_asset, color: Colors.orange),
-              SizedBox(width: 10),
-              Text("Quick Activity 🎮", style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          const Text("Arrange the letters to form a word", style: TextStyle(fontSize: 13, color: Colors.black54)),
-          const SizedBox(height: 15),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: ["C", "A", "T"].map((l) => Container(
-              margin: const EdgeInsets.symmetric(horizontal: 5),
-              width: 45, height: 45,
-              decoration: BoxDecoration(color: const Color(0xFFFFE082), borderRadius: BorderRadius.circular(10)),
-              alignment: Alignment.center,
-              child: Text(l, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF5D4037))),
-            )).toList(),
-          ),
-          const Icon(Icons.arrow_downward, color: Colors.orange, size: 18),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(3, (i) => Container(
-              margin: const EdgeInsets.symmetric(horizontal: 5),
-              width: 45, height: 45,
-              decoration: BoxDecoration(
-                border: Border.all(color: const Color(0xFFFFE082), style: BorderStyle.solid),
-                borderRadius: BorderRadius.circular(10),
-              ),
-            )),
-          ),
-        ],
-      ),
-    );
+  String _emojiForOption(int index) {
+    const emojis = <String>['😄', '😐', '😫', '😭'];
+    if (index < 0 || index >= emojis.length) {
+      return '•';
+    }
+    return emojis[index];
   }
 
   Widget _buildBottomButton(BuildContext context) {
@@ -191,16 +176,105 @@ class SmartAssessmentScreen extends StatelessWidget {
           gradient: const LinearGradient(colors: [Colors.purpleAccent, Colors.blueAccent]),
         ),
         child: ElevatedButton.icon(
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (context) => const ReportScreen()),
-            );
-          },
+          onPressed: _isSubmitting
+              ? null
+              : () async {
+                  if (_responses.length != QuestionnaireService.questions.length) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Please answer all questions before submitting.'),
+                      ),
+                    );
+                    return;
+                  }
+
+                  setState(() {
+                    _isSubmitting = true;
+                  });
+
+                  try {
+                    await QuestionnaireService.submitQuestionnaireResponsesLocally(
+                      userId: widget.userId,
+                      responses: _responses,
+                      additionalObservations: _observationsController.text,
+                    );
+
+                    if (!context.mounted) {
+                      return;
+                    }
+
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Thank you for your response. You are in right hands.'),
+                      ),
+                    );
+
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const ChildAssessmentScreen()),
+                    );
+                  } catch (error) {
+                    if (!context.mounted) {
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Submission failed: $error')),
+                    );
+                  } finally {
+                    if (context.mounted) {
+                      setState(() {
+                        _isSubmitting = false;
+                      });
+                    }
+                  }
+                },
           style: ElevatedButton.styleFrom(backgroundColor: Colors.transparent, shadowColor: Colors.transparent),
           icon: const Icon(Icons.help_outline, color: Colors.white),
-          label: const Text("View Report", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          label: Text(
+            _isSubmitting ? 'Submitting...' : 'Submit & Start Child Assessment',
+            style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildObservationsCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF4FF),
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Additional Observations',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          const SizedBox(height: 10),
+          const Text(
+            'Share any notes about your child that may help us understand better.',
+            style: TextStyle(color: Colors.black54, fontSize: 13),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _observationsController,
+            minLines: 3,
+            maxLines: 5,
+            decoration: InputDecoration(
+              hintText: 'Type your observations here...',
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

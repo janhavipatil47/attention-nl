@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'accountCreationScreen.dart';
+import 'homePage.dart';
 
 class NeuroLearnLogin extends StatefulWidget {
   const NeuroLearnLogin({super.key});
@@ -109,7 +110,12 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: () {},
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const LearningHomeScreen()),
+                    );
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
