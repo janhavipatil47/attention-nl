@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:flutter/material.dart';
-
 //void main() => runApp(const MaterialApp(home: AssessmentReport(), debugShowCheckedModeBanner: false));
 
 class ReportScreen extends StatelessWidget {

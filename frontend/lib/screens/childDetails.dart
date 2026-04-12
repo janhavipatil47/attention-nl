@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'homePage.dart';
 
-class ChildInfoScreen extends StatelessWidget {
+class ChildInfoScreen extends StatefulWidget {
   const ChildInfoScreen({
     super.key,
     required this.userId,
@@ -10,6 +12,60 @@ class ChildInfoScreen extends StatelessWidget {
 
   final String userId;
   final String userName;
+
+  @override
+  State<ChildInfoScreen> createState() => _ChildInfoScreenState();
+}
+
+class _ChildInfoScreenState extends State<ChildInfoScreen> {
+  final TextEditingController _childNameController = TextEditingController();
+  final List<int> _ageOptions = <int>[3, 4, 5, 6, 7];
+  final List<String> _gradeOptions = <String>[
+    'Nursery',
+    'LKG',
+    'UKG',
+    'Grade 1',
+    'Grade 2',
+  ];
+
+  int? _selectedAge;
+  String? _selectedGrade;
+
+  @override
+  void dispose() {
+    _childNameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveAndContinue() async {
+    final String childName = _childNameController.text.trim();
+    if (childName.isEmpty || _selectedAge == null || _selectedGrade == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please complete child name, age, and grade.')),
+      );
+      return;
+    }
+
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setString('childName', childName);
+    await prefs.setInt('childAgeValue', _selectedAge!);
+    await prefs.setString('childAge', _selectedAge!.toString());
+    await prefs.setString('childGrade', _selectedGrade!);
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LearningHomeScreen(
+          userId: widget.userId,
+          userName: widget.userName,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -89,15 +145,15 @@ class ChildInfoScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     _buildLabel(Icons.person, "Child's Name"),
-                    _buildTextField("Enter your child's name"),
+                    _buildTextField(),
                     
                     const SizedBox(height: 20),
                     _buildLabel(Icons.cake, "Age"),
-                    _buildDropdown("Select age"),
+                    _buildAgeDropdown(),
                     
                     const SizedBox(height: 20),
                     _buildLabel(Icons.school, "Grade/Class"),
-                    _buildDropdown("Select grade"),
+                    _buildGradeDropdown(),
                   ],
                 ),
               ),
@@ -122,17 +178,7 @@ class ChildInfoScreen extends StatelessWidget {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => LearningHomeScreen(
-                          userId: userId,
-                          userName: userName,
-                        ),
-                      ),
-                    );
-                  },
+                  onPressed: _saveAndContinue,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
@@ -169,10 +215,11 @@ class ChildInfoScreen extends StatelessWidget {
   }
 
   // Helper for text input
-  Widget _buildTextField(String hint) {
+  Widget _buildTextField() {
     return TextField(
+      controller: _childNameController,
       decoration: InputDecoration(
-        hintText: hint,
+        hintText: "Enter your child's name",
         hintStyle: const TextStyle(color: Colors.black26, fontSize: 14),
         filled: true,
         fillColor: Colors.white,
@@ -188,8 +235,39 @@ class ChildInfoScreen extends StatelessWidget {
     );
   }
 
-  // Helper for dropdowns
-  Widget _buildDropdown(String hint) {
+  Widget _buildAgeDropdown() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: Colors.black12),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<int>(
+          isExpanded: true,
+          value: _selectedAge,
+          hint: const Text('Select age', style: TextStyle(color: Colors.black26, fontSize: 14)),
+          icon: const Icon(Icons.expand_more, color: Colors.black26),
+          items: _ageOptions
+              .map(
+                (int age) => DropdownMenuItem<int>(
+                  value: age,
+                  child: Text(age.toString()),
+                ),
+              )
+              .toList(),
+          onChanged: (int? value) {
+            setState(() {
+              _selectedAge = value;
+            });
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGradeDropdown() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 15),
       decoration: BoxDecoration(
@@ -200,10 +278,22 @@ class ChildInfoScreen extends StatelessWidget {
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
-          hint: Text(hint, style: const TextStyle(color: Colors.black26, fontSize: 14)),
+          value: _selectedGrade,
+          hint: const Text('Select grade', style: TextStyle(color: Colors.black26, fontSize: 14)),
           icon: const Icon(Icons.expand_more, color: Colors.black26),
-          items: const [], // Add your menu items here
-          onChanged: (value) {},
+          items: _gradeOptions
+              .map(
+                (String grade) => DropdownMenuItem<String>(
+                  value: grade,
+                  child: Text(grade),
+                ),
+              )
+              .toList(),
+          onChanged: (String? value) {
+            setState(() {
+              _selectedGrade = value;
+            });
+          },
         ),
       ),
     );
