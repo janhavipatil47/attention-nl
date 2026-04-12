@@ -62,6 +62,12 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     final RegExpMatch? ageMatch = RegExp(r'\d+').firstMatch(rawAge);
     final int parsedAge = storedAgeValue ?? int.tryParse(ageMatch?.group(0) ?? '') ?? 3;
 
+    // Debug logging
+    print('ChildAssessment DEBUG: storedAgeValue = $storedAgeValue');
+    print('ChildAssessment DEBUG: rawAge = $rawAge');
+    print('ChildAssessment DEBUG: ageMatch = ${ageMatch?.group(0)}');
+    print('ChildAssessment DEBUG: parsedAge = $parsedAge');
+
     if (!mounted) {
       return;
     }

@@ -11,6 +11,7 @@ class AuthUser {
     required this.email,
     required this.createdAt,
     this.passwordHash,
+    this.ageOfChild,
   });
 
   final String id;
@@ -18,6 +19,7 @@ class AuthUser {
   final String email;
   final DateTime createdAt;
   final String? passwordHash;
+  final int? ageOfChild;
 
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     final createdAtRaw = json['createdAt'];
@@ -35,6 +37,7 @@ class AuthUser {
       email: json['email'] as String? ?? '',
       createdAt: createdAt,
       passwordHash: json['passwordHash'] as String?,
+      ageOfChild: json['ageOfChild'] as int?,
     );
   }
 
@@ -45,6 +48,7 @@ class AuthUser {
       'email': email,
       'emailNormalized': AuthService.normalizeEmail(email),
       'createdAt': createdAt.toUtc().toIso8601String(),
+      'ageOfChild': ageOfChild,
     };
 
     if (includeSensitiveFields && passwordHash != null) {
@@ -72,10 +76,13 @@ class AuthService {
     final encoded = prefs.getString(_currentUserKey);
 
     if (encoded == null || encoded.isEmpty) {
+      print('AUTH DEBUG: No current user found in SharedPreferences');
       return null;
     }
 
-    return AuthUser.fromJson(jsonDecode(encoded) as Map<String, dynamic>);
+    final user = AuthUser.fromJson(jsonDecode(encoded) as Map<String, dynamic>);
+    print('AUTH DEBUG: Current user from SharedPreferences - email: ${user.email}, ageOfChild: ${user.ageOfChild}');
+    return user;
   }
 
   static Future<void> signOut() async {
@@ -158,6 +165,7 @@ class AuthService {
       }
 
       final userJson = snapshot.docs.first.data();
+      print('AUTH DEBUG: Complete user document from Firebase: $userJson');
       final storedHash = userJson['passwordHash'] as String?;
 
       if (storedHash == null || storedHash != passwordHash) {
@@ -165,12 +173,22 @@ class AuthService {
       }
 
       final user = AuthUser.fromJson(userJson);
+      print('AUTH DEBUG: Created AuthUser - email: ${user.email}, ageOfChild: ${user.ageOfChild}');
       await _saveCurrentUser(user);
+      
+      // Also save ageOfChild to SharedPreferences for easy access
+      if (user.ageOfChild != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setInt('childAgeValue', user.ageOfChild!);
+        await prefs.setString('childAge', '${user.ageOfChild} years');
+        print('AUTH DEBUG: Saved ageOfChild ${user.ageOfChild} to SharedPreferences');
+      }
+      
       return user;
     } on FirebaseException catch (error) {
       throw StateError('Unable to read account from Firestore: ${error.message ?? error.code}');
     }
-  }
+}
 
   static Future<void> _saveCurrentUser(AuthUser user) async {
     final prefs = await SharedPreferences.getInstance();

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/questionnaire_service.dart';
+import '../services/auth_service.dart';
 import 'childAssessment.dart';
+import 'sixYearAssessment.dart';
 
 class SmartAssessmentScreen extends StatefulWidget {
   const SmartAssessmentScreen({super.key, this.userId = 'anonymous_user'});
@@ -209,10 +212,31 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                       ),
                     );
 
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const ChildAssessmentScreen()),
-                    );
+                    // Get current user's ageOfChild from Firebase and route accordingly
+                    final currentUser = await AuthService.currentUser();
+                    final int? ageOfChild = currentUser?.ageOfChild;
+
+                    print('DEBUG: Current user = ${currentUser?.email}');
+                    print('DEBUG: Current user ageOfChild = $ageOfChild');
+                    
+                    // Temporary fix: Set age to 6 for testing if null
+                    final int childAge = ageOfChild ?? 6;
+                    print('DEBUG: Using childAge = $childAge');
+                    print('DEBUG: childAge >= 6 = ${childAge >= 6}');
+
+                    if (childAge >= 6) {
+                      print('DEBUG: Routing to SixYearAssessmentScreen');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const SixYearAssessmentScreen()),
+                      );
+                    } else {
+                      print('DEBUG: Routing to ChildAssessmentScreen');
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const ChildAssessmentScreen()),
+                      );
+                    }
                   } catch (error) {
                     if (!context.mounted) {
                       return;

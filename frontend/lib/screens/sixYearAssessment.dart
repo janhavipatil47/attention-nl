@@ -1,0 +1,2694 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'dart:math' as math;
+
+class SixYearAssessmentScreen extends StatefulWidget {
+  const SixYearAssessmentScreen({super.key});
+
+  @override
+  State<SixYearAssessmentScreen> createState() => _SixYearAssessmentScreenState();
+}
+
+class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
+    with TickerProviderStateMixin {
+  late FlutterTts _tts;
+  late AnimationController _shakeController;
+  late AnimationController _pulseController;
+  late AnimationController _glowController;
+  late AnimationController _bubbleController;
+
+  int _currentActivity = 0;
+  int _completedActivities = 0;
+
+  // Rhyme-Time Pop state (NEW)
+  final List<String> _rhymeCenters = ['hand', 'cat', 'ball', 'tree'];
+  String _currentRhymeCenter = '';
+  final Map<String, List<String>> _rhymeOptions = {
+    'hand': ['band', 'sand', 'blue', 'jump', 'land', 'stand'],
+    'cat': ['bat', 'hat', 'dog', 'rat', 'mat', 'fish'],
+    'ball': ['tall', 'wall', 'fall', 'jump', 'call', 'small'],
+    'tree': ['bee', 'see', 'free', 'dog', 'knee', 'three']
+  };
+  List<String> _currentBubbles = [];
+  Set<String> _poppedBubbles = {};
+  bool _rhymeComplete = false;
+
+  // Letter Builder state (NEW)
+  String _currentBuildLetter = 'd';
+  String? _selectedPart;
+  String? _circlePosition;
+  bool _letterBuilt = false;
+  bool _letterBuilderComplete = false;
+
+  // Image-to-Word Snap state (NEW)
+  final List<Map<String, dynamic>> _imageWords = [
+    {'image': '🐕', 'word': 'dog', 'letters': ['D', 'G', 'P', 'B'], 'correct': 'D'},
+    {'image': '🐱', 'word': 'cat', 'letters': ['C', 'T', 'K', 'S'], 'correct': 'C'},
+    {'image': '🦇', 'word': 'bat', 'letters': ['B', 'T', 'P', 'D'], 'correct': 'B'},
+    {'image': '📖', 'word': 'book', 'letters': ['B', 'K', 'P', 'T'], 'correct': 'B'}
+  ];
+  int _currentImageIndex = 0;
+  String? _selectedLetter;
+  bool _imageSnapComplete = false;
+
+  // Infinite Canvas Storyteller state (NEW)
+  final List<String> _stickers = ['🐕', '⚽', '🌳', '☁️', '🏠', '🚗', '🌸', '🦋'];
+  List<String> _placedStickers = [];
+  String _storyRecording = '';
+  bool _isRecording = false;
+  bool _storytellerComplete = false;
+
+  // Original Letter Sorter state
+  final List<String> _letters = ['a', 'd', 'k', 'w'];
+  final List<String> _sortedLetters = ['a', 'd', 'k', 'w'];
+  List<String> _jumbledLetters = [];
+  List<String> _placedLetters = [];
+  List<bool> _correctPlacements = [];
+  bool _letterSorterComplete = false;
+
+  // Original Audio Explorer state
+  final List<String> _audioLetters = ['b', 'c', 'a'];
+  String _targetLetter = '';
+  String? _selectedAudioLetter;
+  bool _audioExplorerComplete = false;
+
+  // Original Match-Up Forest state
+  final Map<String, String> _letterPairs = {
+    'h': 'H', 'i': 'I', 'e': 'E', 'm': 'M', 'f': 'F',
+    'd': 'D', 'w': 'W', 'p': 'P', 's': 'S', 'n': 'N'
+  };
+  final List<String> _lowercaseLetters = ['h', 'i', 'e', 'm', 'f', 'd', 'w', 'p', 's', 'n'];
+  final List<String> _uppercaseLetters = ['N', 'I', 'D', 'M', 'F', 'H', 'W', 'P', 'S', 'E'];
+  String? _selectedLowercase;
+  String? _selectedUppercase;
+  final Set<String> _matchedPairs = {};
+  bool _matchUpComplete = false;
+
+  // Original Reading Rainbow state
+  final List<String> _readingWords = [
+    'nature', 'might', 'strong', 'beauty', 'moody', 
+    'smart', 'blue', 'green', 'true', 'ever', 'free'
+  ];
+  final Set<String> _readWords = {};
+  bool _readingRainbowComplete = false;
+
+  // NEW: Visual-to-Symbol Table state
+  final List<Map<String, dynamic>> _numberTable = [
+    {'picture': 1, 'digits': '1', 'words': 'One', 'completed': true},
+    {'picture': 2, 'digits': '', 'words': '', 'completed': false},
+    {'picture': 3, 'digits': '', 'words': '', 'completed': false},
+    {'picture': 4, 'digits': '', 'words': '', 'completed': false},
+    {'picture': 5, 'digits': '', 'words': '', 'completed': false},
+  ];
+  bool _numberTableComplete = false;
+
+  // NEW: Animal Counting Corral state
+  final List<Map<String, dynamic>> _animalGroups = [
+    {'animal': 'mouse', 'count': 9, 'emoji': '🐭', 'selected': false},
+    {'animal': 'penguin', 'count': 7, 'emoji': '🐧', 'selected': false},
+    {'animal': 'elephant', 'count': 2, 'emoji': '🐘', 'selected': false},
+  ];
+  final List<int> _availableNumbers = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  Map<String, int> _animalNumberConnections = {};
+  bool _animalCountingComplete = false;
+  bool _showCrossOutMode = false;
+
+  // NEW: Dice Path Sequencing state
+  final List<int> _diceSequence = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+  List<int> _scrambledDice = [];
+  List<int> _tappedDice = [];
+  int _currentDiceIndex = 0;
+  bool _dicePathComplete = false;
+  int _ramaPosition = 0;
+
+  // NEW: Geometric Shape Detective state
+  final Map<String, String> _duckShapes = {
+    'head': 'Circle',
+    'body': 'Oval',
+    'beak': 'Triangle',
+    'eye': 'Circle',
+    'wing': 'Oval',
+    'tail': 'Triangle',
+    'feet': 'Square',
+    'water': 'Square',
+  };
+  final Map<String, bool> _collectedShapes = {
+    'Triangle': false,
+    'Circle': false,
+    'Square': false,
+  };
+  bool _shapeDetectiveComplete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    _tts = FlutterTts();
+    
+    _shakeController = AnimationController(
+      duration: const Duration(milliseconds: 600), 
+      vsync: this
+    );
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 800), 
+      vsync: this
+    );
+    _glowController = AnimationController(
+      duration: const Duration(milliseconds: 1000), 
+      vsync: this
+    );
+    _bubbleController = AnimationController(
+      duration: const Duration(seconds: 2), 
+      vsync: this
+    );
+    
+    // Initialize all arrays to prevent null errors
+    _currentBubbles = ['band', 'sand', 'blue', 'jump'];
+    _placedStickers = [];
+    _jumbledLetters = ['a', 'd', 'k', 'w'];
+    _placedLetters = List.filled(4, '');
+    _correctPlacements = List.filled(4, false);
+    // For final Sets, clear them instead of reassigning
+    _matchedPairs.clear();
+    _readWords.clear();
+    
+    _setupTts();
+    _initializeActivities();
+    
+    // Start the bubble animation
+    _bubbleController.repeat();
+  }
+
+  void _setupTts() async {
+    await _tts.setSpeechRate(0.5);
+    await _tts.setVolume(1.0);
+  }
+
+  void _initializeActivities() {
+    // Initialize Rhyme-Time Pop
+    _selectNewRhymeCenter();
+    
+    // Initialize Letter Builder
+    _resetLetterBuilder();
+    
+    // Initialize Original activities
+    _jumbledLetters = List.from(_letters)..shuffle();
+    _placedLetters = List.filled(4, '');
+    _correctPlacements = List.filled(4, false);
+    _targetLetter = _audioLetters[math.Random().nextInt(_audioLetters.length)];
+    
+    // Initialize NEW activities
+    _initializeNumberTable();
+    _initializeAnimalCounting();
+    _initializeDicePath();
+    _initializeShapeDetective();
+  }
+
+  void _selectNewRhymeCenter() {
+    setState(() {
+      _currentRhymeCenter = _rhymeCenters[math.Random().nextInt(_rhymeCenters.length)];
+      _currentBubbles = List.from(_rhymeOptions[_currentRhymeCenter]!);
+      _poppedBubbles.clear();
+    });
+  }
+
+  void _resetLetterBuilder() {
+    setState(() {
+      _currentBuildLetter = ['d', 'b', 'p', 'q'][math.Random().nextInt(4)];
+      _selectedPart = null;
+      _circlePosition = null;
+      _letterBuilt = false;
+    });
+  }
+
+  void _initializeNumberTable() {
+    setState(() {
+      // Already initialized in state variables
+    });
+  }
+
+  void _initializeAnimalCounting() {
+    setState(() {
+      _animalNumberConnections.clear();
+      _showCrossOutMode = false;
+    });
+  }
+
+  void _initializeDicePath() {
+    setState(() {
+      _scrambledDice = List.from(_diceSequence)..shuffle();
+      _tappedDice.clear();
+      _currentDiceIndex = 0;
+      _ramaPosition = 0;
+    });
+  }
+
+  void _initializeShapeDetective() {
+    setState(() {
+      _collectedShapes.updateAll((key, value) => false);
+    });
+  }
+
+  void _popBubble(String bubble) {
+    if (!_poppedBubbles.contains(bubble)) {
+      bool isRhyme = _rhymeOptions[_currentRhymeCenter]!.contains(bubble);
+      if (isRhyme) {
+        setState(() {
+          _poppedBubbles.add(bubble);
+        });
+        _tts.speak('Good job! $bubble rhymes with ${_currentRhymeCenter}!');
+        
+        // Check if all rhyming bubbles are popped
+        int totalRhymes = _rhymeOptions[_currentRhymeCenter]!.length;
+        if (_poppedBubbles.length == totalRhymes) {
+          setState(() {
+            _rhymeComplete = true;
+          });
+        }
+      } else {
+        _shakeController.forward().then((_) => _shakeController.reverse());
+        _tts.speak('Try again! $bubble doesn\'t rhyme with ${_currentRhymeCenter}');
+      }
+    }
+  }
+
+  void _buildLetter(String part) {
+    setState(() {
+      if (part == 'circle') {
+        _selectedPart = part;
+        _tts.speak('Now tap the line to build your letter!');
+      } else if (part == 'line') {
+        if (_selectedPart == 'circle') {
+          _letterBuilt = true;
+          _tts.speak('Great job building the letter $_currentBuildLetter!');
+          _letterBuilderComplete = true;
+        } else {
+          _tts.speak('First tap the circle, then tap the line!');
+          _shakeController.forward().then((_) => _shakeController.reverse());
+        }
+      }
+    });
+  }
+
+  void _selectImageLetter(String letter) {
+    setState(() {
+      _selectedLetter = letter;
+      if (letter == _imageWords[_currentImageIndex]['correct']) {
+        _tts.speak('Correct! ${_imageWords[_currentImageIndex]['word']} starts with $letter');
+        if (_currentImageIndex < _imageWords.length - 1) {
+          _currentImageIndex++;
+          _selectedLetter = null;
+        } else {
+          _imageSnapComplete = true;
+        }
+      } else {
+        _shakeController.forward().then((_) => _shakeController.reverse());
+        _tts.speak('Not quite! Try again');
+        _selectedLetter = null;
+      }
+    });
+  }
+
+  void _addSticker(String sticker) {
+    setState(() {
+      _placedStickers.add(sticker);
+    });
+    _tts.speak('Added $sticker to your scene!');
+  }
+
+  void _startRecording() async {
+    setState(() {
+      _isRecording = true;
+    });
+    // In a real app, you'd implement actual recording here
+    await Future.delayed(const Duration(seconds: 2));
+    setState(() {
+      _isRecording = false;
+      _storytellerComplete = true;
+      _tts.speak('Great story! You can listen to it anytime!');
+    });
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    _pulseController.dispose();
+    _glowController.dispose();
+    _bubbleController.dispose();
+    _tts.stop();
+    super.dispose();
+  }
+
+  Widget _buildActivityIndicator() {
+    int totalActivities = 12;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: List.generate(totalActivities, (index) {
+          bool isCompleted = index < _completedActivities;
+          bool isCurrent = index == _currentActivity;
+          
+          return Container(
+            width: 30,
+            height: 8,
+            decoration: BoxDecoration(
+              color: isCompleted 
+                  ? Colors.green 
+                  : isCurrent 
+                      ? Colors.purple 
+                      : Colors.grey.withOpacity(0.3),
+              borderRadius: BorderRadius.circular(4),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // NEW: Rhyme-Time Pop Activity
+  Widget _buildRhymeTimePop() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "🎈 Rhyme-Time Pop! 🎈",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Pop the bubbles that rhyme with '$_currentRhymeCenter'",
+              style: const TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Center word
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.purple.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.purple.withOpacity(0.3),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+              child: Text(
+                _currentRhymeCenter,
+                style: const TextStyle(
+                  fontSize: 36,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.purple,
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Floating bubbles
+            SizedBox(
+              height: 300,
+              child: Wrap(
+                spacing: 20,
+                runSpacing: 20,
+                children: (_currentBubbles.isNotEmpty ? _currentBubbles : ['band', 'sand', 'blue', 'jump']).map((bubble) => 
+                  AnimatedBuilder(
+                    animation: _bubbleController,
+                    builder: (context, child) {
+                      return Transform.translate(
+                        offset: Offset(0, math.sin(_bubbleController.value * math.pi * 2) * 10),
+                        child: GestureDetector(
+                          onTap: () => _popBubble(bubble),
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: _poppedBubbles.contains(bubble) 
+                                  ? Colors.grey.withOpacity(0.5)
+                                  : Colors.blue.withOpacity(0.8),
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.blue.withOpacity(0.5),
+                                  blurRadius: 8,
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: Text(
+                                bubble,
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ).toList(),
+              ),
+            ),
+            
+            if (_rhymeComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "🎉 Amazing! You found all the rhymes! 🎉",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // NEW: Letter Builder Activity
+  Widget _buildLetterBuilder() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "🧩 Letter Builder 🧩",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              "Build the letter '$_currentBuildLetter'",
+              style: const TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Building area
+            Container(
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.grey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.grey, width: 2),
+              ),
+              child: Center(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (_selectedPart == 'circle' || _letterBuilt)
+                      Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Center(
+                          child: Text('○', style: TextStyle(fontSize: 40)),
+                        ),
+                      ),
+                    const SizedBox(width: 20),
+                    if (_letterBuilt || _selectedPart != null)
+                      Container(
+                        width: 10,
+                        height: 80,
+                        color: Colors.brown,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Letter parts to choose from
+            const Text(
+              "Tap the circle, then tap the line to build your letter!",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                GestureDetector(
+                  onTap: () => _buildLetter('circle'),
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.orange,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Text('○', style: TextStyle(fontSize: 40, color: Colors.white)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 30),
+                GestureDetector(
+                  onTap: () => _buildLetter('line'),
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: Colors.brown,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Center(
+                      child: Text('|', style: TextStyle(fontSize: 40, color: Colors.white)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            
+            if (_letterBuilderComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "🎉 You built the letter! 🎉",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // NEW: Image-to-Word Snap Activity
+  Widget _buildImageToWordSnap() {
+    final currentItem = _imageWords[_currentImageIndex];
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "📸 Image-to-Word Snap! 📸",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Tap the letter that starts this word",
+              style: TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 30),
+            
+            // Image display
+            Container(
+              width: 150,
+              height: 150,
+              decoration: BoxDecoration(
+                color: Colors.yellow.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Center(
+                child: Text(
+                  currentItem['image'],
+                  style: const TextStyle(fontSize: 80),
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Voice hint button
+            ElevatedButton.icon(
+              onPressed: () async {
+                await _tts.speak(currentItem['word']);
+              },
+              icon: const Icon(Icons.volume_up),
+              label: const Text("Listen to the word"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Letter choices (large, bold font)
+            Wrap(
+              spacing: 20,
+              runSpacing: 20,
+              children: (currentItem['letters'] != null && currentItem['letters'].isNotEmpty ? List<String>.from(currentItem['letters']) : ['A', 'B', 'C', 'D']).map((letter) => 
+                GestureDetector(
+                  onTap: () => _selectImageLetter(letter),
+                  child: Container(
+                    width: 80,
+                    height: 80,
+                    decoration: BoxDecoration(
+                      color: _selectedLetter == letter 
+                          ? Colors.green 
+                          : Colors.white,
+                      border: Border.all(color: Colors.blue, width: 3),
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.blue.withOpacity(0.3),
+                          blurRadius: 8,
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        letter,
+                        style: const TextStyle(
+                          fontSize: 36,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ).toList(),
+            ),
+            
+            if (_imageSnapComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "🎉 Great job! You know your letter sounds! 🎉",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // NEW: Infinite Canvas Storyteller Activity
+  Widget _buildStoryteller() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "🎨 Storyteller's Canvas 🎨",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Create a scene and tell your story!",
+              style: TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Canvas area
+            Container(
+              height: 300,
+              decoration: BoxDecoration(
+                color: Colors.lightGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.green, width: 2),
+              ),
+              child: Wrap(
+                children: (_placedStickers.isNotEmpty ? _placedStickers : []).map((sticker) => 
+                  Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Text(sticker, style: const TextStyle(fontSize: 40)),
+                  ),
+                ).toList(),
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Sticker choices
+            const Text(
+              "Tap stickers to add to your scene!",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 12,
+              children: (_stickers.isNotEmpty ? _stickers : ['dog', 'ball', 'tree']).map((sticker) => 
+                GestureDetector(
+                  onTap: () => _addSticker(sticker),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey),
+                    ),
+                    child: Text(sticker, style: const TextStyle(fontSize: 32)),
+                  ),
+                ),
+              ).toList(),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Microphone recording
+            ElevatedButton.icon(
+              onPressed: _isRecording ? null : _startRecording,
+              icon: Icon(_isRecording ? Icons.fiber_manual_record : Icons.mic),
+              label: Text(_isRecording ? "Recording..." : "Record Your Story"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _isRecording ? Colors.red : Colors.purple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+              ),
+            ),
+            
+            if (_storytellerComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "🎉 What a wonderful story! 🎉",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // NEW: Visual-to-Symbol Table Module
+  Widget _buildNumberTable() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Number Representation Table",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 20),
+            
+            // Table header
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blue, width: 2),
+              ),
+              child: const Row(
+                children: [
+                  Expanded(child: Text('Picture', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold))),
+                  Expanded(child: Text('In Digits', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold))),
+                  Expanded(child: Text('In Words', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold))),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 10),
+            
+            // Table rows
+            ...List.generate(5, (index) {
+              final row = _numberTable[index];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: row['completed'] ? Colors.green.withOpacity(0.1) : Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Row(
+                  children: [
+                    // Picture column - dots
+                    Expanded(
+                      child: Center(
+                        child: Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: List.generate(row['picture'], (dotIndex) => 
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    // Digits column
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          if (!row['completed'] && row['digits'].isEmpty) {
+                            _showDigitPopup(index);
+                          }
+                        },
+                        child: Container(
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: row['digits'].isNotEmpty ? Colors.blue.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade400),
+                          ),
+                          child: Center(
+                            child: Text(
+                              row['digits'].isNotEmpty ? row['digits'] : 'Tap',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: row['digits'].isNotEmpty ? Colors.blue : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    
+                    // Words column
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          if (!row['completed'] && row['words'].isEmpty) {
+                            _showWordPopup(index);
+                          }
+                        },
+                        child: Container(
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: row['words'].isNotEmpty ? Colors.green.withOpacity(0.2) : Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade400),
+                          ),
+                          child: Center(
+                            child: Text(
+                              row['words'].isNotEmpty ? row['words'] : 'Tap',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: row['words'].isNotEmpty ? Colors.green : Colors.grey.shade600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+            
+            if (_numberTableComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "Excellent! You completed the number table!",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDigitPopup(int rowIndex) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Select number for ${rowIndex + 1}'),
+        content: Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [2, 3, 4, 5].map((number) => 
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _numberTable[rowIndex]['digits'] = number.toString();
+                  _checkRowCompletion(rowIndex);
+                });
+                Navigator.of(context).pop();
+              },
+              child: Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: Colors.blue,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Center(
+                  child: Text(
+                    number.toString(),
+                    style: const TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _showWordPopup(int rowIndex) {
+    final correctWords = ['Two', 'Three', 'Four', 'Five'];
+    final wordOptions = [
+      correctWords[rowIndex - 1], // Correct word
+      'Seven', // Wrong option 1
+      'Ten',   // Wrong option 2
+    ]..shuffle();
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Select word for ${rowIndex + 1}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: wordOptions.map((word) => 
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _numberTable[rowIndex]['words'] = word;
+                    _checkRowCompletion(rowIndex);
+                  });
+                  Navigator.of(context).pop();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue),
+                  ),
+                  child: Text(
+                    word,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ).toList(),
+        ),
+      ),
+    );
+  }
+
+  void _checkRowCompletion(int rowIndex) {
+    final row = _numberTable[rowIndex];
+    if (row['digits'].isNotEmpty && row['words'].isNotEmpty) {
+      setState(() {
+        row['completed'] = true;
+      });
+      _tts.speak('Great job! ${rowIndex + 1} is ${row['words']}');
+      
+      // Check if all rows are complete
+      if (_numberTable.every((r) => r['completed'])) {
+        setState(() {
+          _numberTableComplete = true;
+        });
+        _tts.speak('Amazing! You completed the entire number table!');
+      }
+    }
+  }
+
+  // NEW: Animal Counting Corral
+  Widget _buildAnimalCounting() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Animal Counting Corral",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 20),
+            
+            // Cross-out mode toggle
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.orange, width: 2),
+              ),
+              child: Row(
+                children: [
+                  const Text("Cross-out mode:", style: TextStyle(fontSize: 16)),
+                  const Spacer(),
+                  Switch(
+                    value: _showCrossOutMode,
+                    onChanged: (value) {
+                      setState(() {
+                        _showCrossOutMode = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Main content area
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Animal groups on the left
+                Expanded(
+                  flex: 2,
+                  child: Column(
+                    children: _animalGroups.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final animal = entry.value;
+                      final isSelected = animal['selected'];
+                      final isConnected = _animalNumberConnections.containsKey(animal['animal']);
+                      
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isSelected ? Colors.blue.withOpacity(0.2) : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isConnected ? Colors.green : Colors.grey,
+                            width: isConnected ? 3 : 2,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Animal display with cross-out functionality
+                            GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  // Toggle selection
+                                  for (var a in _animalGroups) {
+                                    a['selected'] = false;
+                                  }
+                                  animal['selected'] = true;
+                                });
+                                _tts.speak('${animal['animal']}');
+                              },
+                              child: Row(
+                                children: [
+                                  // Animal emojis
+                                  Expanded(
+                                    child: Wrap(
+                                      spacing: 4,
+                                      runSpacing: 4,
+                                      children: List.generate(animal['count'], (dotIndex) => 
+                                        Container(
+                                          width: 24,
+                                          height: 24,
+                                          child: Stack(
+                                            children: [
+                                              Text(
+                                                animal['emoji'],
+                                                style: const TextStyle(fontSize: 20),
+                                              ),
+                                              if (_showCrossOutMode && dotIndex < animal['count'] ~/ 2)
+                                                Positioned.fill(
+                                                  child: Container(
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.red.withOpacity(0.3),
+                                                      shape: BoxShape.circle,
+                                                      border: Border.all(color: Colors.red, width: 2),
+                                                    ),
+                                                    child: const Icon(
+                                                      Icons.close,
+                                                      size: 12,
+                                                      color: Colors.red,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  
+                                  // Animal name only (count hidden for challenge)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      animal['animal'],
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            
+                            if (isConnected)
+                              Container(
+                                margin: const EdgeInsets.only(top: 8),
+                                padding: const EdgeInsets.all(4),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  'Connected to ${_animalNumberConnections[animal['animal']]}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                
+                const SizedBox(width: 20),
+                
+                // Number buttons in center
+                SizedBox(
+                  width: 80,
+                  child: Column(
+                    children: _availableNumbers.map((number) => 
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        width: 60,
+                        height: 60,
+                        child: ElevatedButton(
+                          onPressed: () {
+                            _connectAnimalToNumber(number);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            shape: const CircleBorder(),
+                            padding: const EdgeInsets.all(16),
+                          ),
+                          child: Text(
+                            number.toString(),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ).toList(),
+                  ),
+                ),
+              ],
+            ),
+            
+            if (_animalCountingComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "Perfect! You matched all animals with their counts!",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _getAnimalColor(String animal) {
+    switch (animal) {
+      case 'mouse': return Colors.grey;
+      case 'penguin': return Colors.black;
+      case 'elephant': return Colors.brown;
+      default: return Colors.blue;
+    }
+  }
+
+  void _connectAnimalToNumber(int number) {
+    // Find selected animal
+    final selectedAnimal = _animalGroups.firstWhere(
+      (animal) => animal['selected'],
+      orElse: () => {'animal': '', 'count': 0, 'selected': false},
+    );
+    
+    if (selectedAnimal['animal'].isNotEmpty) {
+      setState(() {
+        _animalNumberConnections[selectedAnimal['animal']] = number;
+        selectedAnimal['selected'] = false;
+        
+        // Check if all animals are connected
+        if (_animalNumberConnections.length == _animalGroups.length) {
+          bool allCorrect = true;
+          for (var animal in _animalGroups) {
+            if (_animalNumberConnections[animal['animal']] != animal['count']) {
+              allCorrect = false;
+              break;
+            }
+          }
+          
+          if (allCorrect) {
+            _animalCountingComplete = true;
+            _tts.speak('Excellent! All animals are correctly counted!');
+          } else {
+            _tts.speak('Some connections are incorrect. Try again!');
+          }
+        }
+      });
+    } else {
+      _tts.speak('Please select an animal first!');
+    }
+  }
+
+  // NEW: Dice Path Sequencing
+  Widget _buildDicePath() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Dice Path Sequencing",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 20),
+            
+            const Text(
+              "Tap the dice in order from 1 to 9",
+              style: TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // 3x3 grid of dice
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.yellow.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.orange, width: 2),
+              ),
+              child: Column(
+                children: [
+                  // Dice grid
+                  ...List.generate(3, (row) => 
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: List.generate(3, (col) {
+                        final index = row * 3 + col;
+                        final diceValue = _scrambledDice[index];
+                        final isTapped = _tappedDice.contains(diceValue);
+                        final isRamaPosition = _ramaPosition == index;
+                        
+                        return GestureDetector(
+                          onTap: () => _tapDice(diceValue, index),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            width: 80,
+                            height: 80,
+                            margin: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: isTapped 
+                                  ? Colors.green.withOpacity(0.3)
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isTapped 
+                                    ? Colors.green
+                                    : Colors.grey,
+                                width: isTapped ? 3 : 2,
+                              ),
+                              boxShadow: isRamaPosition ? [
+                                BoxShadow(
+                                  color: Colors.purple.withOpacity(0.5),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ] : null,
+                            ),
+                            child: Stack(
+                              children: [
+                                // Dice dots
+                                Center(
+                                  child: _buildDiceDots(diceValue),
+                                ),
+                                
+                                // Rama character indicator
+                                if (isRamaPosition)
+                                  Positioned(
+                                    top: -10,
+                                    right: -10,
+                                    child: Container(
+                                      width: 30,
+                                      height: 30,
+                                      decoration: BoxDecoration(
+                                        color: Colors.purple,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(color: Colors.white, width: 2),
+                                      ),
+                                      child: const Icon(
+                                        Icons.person,
+                                        color: Colors.white,
+                                        size: 16,
+                                      ),
+                                    ),
+                                  ),
+                                
+                                // Tapped indicator
+                                if (isTapped)
+                                  Positioned(
+                                    bottom: 2,
+                                    right: 2,
+                                    child: Container(
+                                      width: 20,
+                                      height: 20,
+                                      decoration: BoxDecoration(
+                                        color: Colors.green,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.check,
+                                        color: Colors.white,
+                                        size: 14,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Progress indicator
+                  Text(
+                    "Next: ${_currentDiceIndex + 1}",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: _currentDiceIndex < 9 ? Colors.blue : Colors.green,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            if (_dicePathComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "Amazing! You completed the dice sequence!",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDiceDots(int value) {
+    switch (value) {
+      case 1:
+        return const Center(
+          child: CircleAvatar(radius: 6, backgroundColor: Colors.black),
+        );
+      case 2:
+        return const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            CircleAvatar(radius: 6, backgroundColor: Colors.black),
+            CircleAvatar(radius: 6, backgroundColor: Colors.black),
+          ],
+        );
+      case 3:
+        return const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            CircleAvatar(radius: 6, backgroundColor: Colors.black),
+            CircleAvatar(radius: 6, backgroundColor: Colors.black),
+            CircleAvatar(radius: 6, backgroundColor: Colors.black),
+          ],
+        );
+      case 4:
+        return const Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+          ],
+        );
+      case 5:
+        return const Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+            Center(
+              child: CircleAvatar(radius: 6, backgroundColor: Colors.black),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+          ],
+        );
+      case 6:
+        return const Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+                CircleAvatar(radius: 6, backgroundColor: Colors.black),
+              ],
+            ),
+          ],
+        );
+      case 7:
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+              ],
+            ),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+              ],
+            ),
+            const Center(
+              child: CircleAvatar(radius: 5, backgroundColor: Colors.black),
+            ),
+          ],
+        );
+      case 8:
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+              ],
+            ),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+                CircleAvatar(radius: 5, backgroundColor: Colors.black),
+              ],
+            ),
+          ],
+        );
+      case 9:
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+              ],
+            ),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+              ],
+            ),
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+                CircleAvatar(radius: 4, backgroundColor: Colors.black),
+              ],
+            ),
+          ],
+        );
+      default:
+        return Container();
+    }
+  }
+
+  void _tapDice(int diceValue, int position) {
+    if (_tappedDice.contains(diceValue)) {
+      return; // Already tapped
+    }
+    
+    setState(() {
+      if (diceValue == _currentDiceIndex + 1) {
+        // Correct sequence
+        _tappedDice.add(diceValue);
+        _currentDiceIndex++;
+        _ramaPosition = position;
+        _tts.speak('Good! ${diceValue}');
+        
+        if (_currentDiceIndex == 9) {
+          _dicePathComplete = true;
+          _tts.speak('Perfect! You completed the sequence!');
+        }
+      } else {
+        // Wrong sequence - gentle pulse
+        _shakeController.forward().then((_) => _shakeController.reverse());
+        _tts.speak('Not quite! Look for ${_currentDiceIndex + 1}');
+      }
+    });
+  }
+
+  // NEW: Geometric Shape Detective
+  Widget _buildShapeDetective() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "Geometric Shape Detective",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 20),
+            
+            const Text(
+              "Tap parts of the duck to identify shapes!",
+              style: TextStyle(fontSize: 16, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Duck illustration with tap zones
+            Container(
+              width: 300,
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.lightBlue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.blue, width: 2),
+              ),
+              child: Stack(
+                children: [
+                  // Duck body (oval)
+                  Positioned(
+                    left: 100,
+                    top: 80,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('body', 'Oval'),
+                      child: Container(
+                        width: 80,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          color: Colors.yellow.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(40),
+                          border: Border.all(color: Colors.orange, width: 2),
+                        ),
+                        child: const Center(
+                          child: Text('Body', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck head (circle)
+                  Positioned(
+                    left: 60,
+                    top: 60,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('head', 'Circle'),
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        decoration: BoxDecoration(
+                          color: Colors.yellow.withOpacity(0.8),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.orange, width: 2),
+                        ),
+                        child: const Center(
+                          child: Text('Head', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck beak (triangle)
+                  Positioned(
+                    left: 30,
+                    top: 75,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('beak', 'Triangle'),
+                      child: Container(
+                        width: 30,
+                        height: 30,
+                        child: CustomPaint(
+                          painter: TrianglePainter(Colors.orange),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck eye (circle)
+                  Positioned(
+                    left: 70,
+                    top: 70,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('eye', 'Circle'),
+                      child: Container(
+                        width: 15,
+                        height: 15,
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.grey, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck wing (oval)
+                  Positioned(
+                    left: 120,
+                    top: 90,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('wing', 'Oval'),
+                      child: Container(
+                        width: 40,
+                        height: 30,
+                        decoration: BoxDecoration(
+                          color: Colors.yellow.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.orange, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck tail (triangle)
+                  Positioned(
+                    left: 170,
+                    top: 90,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('tail', 'Triangle'),
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        child: CustomPaint(
+                          painter: TrianglePainter(Colors.orange),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Duck feet (squares)
+                  Positioned(
+                    left: 100,
+                    top: 160,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('feet', 'Square'),
+                      child: Container(
+                        width: 25,
+                        height: 25,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(color: Colors.red, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  Positioned(
+                    left: 130,
+                    top: 160,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('feet', 'Square'),
+                      child: Container(
+                        width: 25,
+                        height: 25,
+                        decoration: BoxDecoration(
+                          color: Colors.orange.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(color: Colors.red, width: 2),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  // Water ripples (squares)
+                  Positioned(
+                    left: 40,
+                    top: 140,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('water', 'Square'),
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(color: Colors.blue, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                  
+                  Positioned(
+                    left: 180,
+                    top: 140,
+                    child: GestureDetector(
+                      onTap: () => _collectShape('water', 'Square'),
+                      child: Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withOpacity(0.5),
+                          borderRadius: BorderRadius.circular(2),
+                          border: Border.all(color: Colors.blue, width: 1),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Collection bins
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _buildCollectionBin('Triangle', Colors.red),
+                _buildCollectionBin('Circle', Colors.blue),
+                _buildCollectionBin('Square', Colors.green),
+              ],
+            ),
+            
+            const SizedBox(height: 20),
+            
+            // Progress text
+            Text(
+              "Shapes found: ${_collectedShapes.values.where((collected) => collected).length}/3",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            
+            if (_shapeDetectiveComplete)
+              Container(
+                margin: const EdgeInsets.only(top: 20),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.green.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Text(
+                  "Excellent! You found all the shapes in the duck!",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCollectionBin(String shape, Color color) {
+    final isCollected = _collectedShapes[shape] ?? false;
+    
+    return Container(
+      width: 100,
+      height: 120,
+      decoration: BoxDecoration(
+        color: isCollected ? color.withOpacity(0.3) : Colors.grey.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isCollected ? color : Colors.grey,
+          width: 2,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Shape icon
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Center(
+              child: _buildShapeIcon(shape, color),
+            ),
+          ),
+          
+          const SizedBox(height: 8),
+          
+          // Shape name
+          Text(
+            shape,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: isCollected ? color : Colors.grey,
+            ),
+          ),
+          
+          if (isCollected)
+            const Icon(
+              Icons.check_circle,
+              color: Colors.green,
+              size: 20,
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildShapeIcon(String shape, Color color) {
+    switch (shape) {
+      case 'Triangle':
+        return Container(
+          width: 0,
+          height: 0,
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(width: 20, color: color),
+              bottom: BorderSide(width: 20, color: Colors.transparent),
+              left: BorderSide(width: 20, color: Colors.transparent),
+              right: BorderSide(width: 20, color: Colors.transparent),
+            ),
+          ),
+        );
+      case 'Circle':
+        return Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+          ),
+        );
+      case 'Square':
+        return Container(
+          width: 25,
+          height: 25,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ),
+        );
+      default:
+        return Container();
+    }
+  }
+
+  void _collectShape(String part, String shape) {
+    setState(() {
+      // Only collect if the shape exists in our collection bins
+      if (_collectedShapes.containsKey(shape)) {
+        _collectedShapes[shape] = true;
+        _tts.speak('Great! You found a $shape in the ${part}');
+        
+        // Check if all shapes are collected
+        if (_collectedShapes.values.every((collected) => collected)) {
+          _shapeDetectiveComplete = true;
+          _tts.speak('Amazing! You found all the shapes!');
+        }
+      } else {
+        _tts.speak('That\'s a $shape, but we\'re looking for Triangle, Circle, or Square!');
+      }
+    });
+  }
+
+  // Original activity widgets
+  Widget _buildLetterSorter() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "The Letter Sorter",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Drag and drop letters in alphabetical order: a, d, k, w",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Wooden slots at top
+            Wrap(
+              spacing: 12,
+              children: List.generate(4, (index) => 
+                DragTarget<String>(
+                  onAcceptWithDetails: (details) {
+                    setState(() {
+                      String droppedLetter = details.data;
+                      _placedLetters[index] = droppedLetter;
+                      _correctPlacements[index] = _sortedLetters[index] == droppedLetter;
+                      
+                      // Remove the dropped letter from jumbled letters
+                      _jumbledLetters.remove(droppedLetter);
+                      
+                      // Check if all letters are placed correctly
+                      if (_correctPlacements.every((correct) => correct)) {
+                        _letterSorterComplete = true;
+                        _tts.speak("Great job! You sorted all letters correctly!");
+                      }
+                    });
+                  },
+                  builder: (context, candidateData, rejectedData) {
+                    return Container(
+                      width: 70,
+                      height: 90,
+                      decoration: BoxDecoration(
+                        color: candidateData.isNotEmpty 
+                            ? Colors.brown.withOpacity(0.5)
+                            : Colors.brown.withOpacity(0.3),
+                        border: Border.all(
+                          color: candidateData.isNotEmpty ? Colors.orange : Colors.brown, 
+                          width: 2
+                        ),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: Text(
+                          _placedLetters[index],
+                          style: TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: _correctPlacements[index] ? Colors.green : Colors.black,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ),
+            
+            const SizedBox(height: 30),
+            
+            // Jumbled letters at bottom
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.yellow.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: _jumbledLetters.map((letter) => 
+                  Draggable<String>(
+                    data: letter,
+                    feedback: Container(
+                      width: 60,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.yellow,
+                        borderRadius: BorderRadius.circular(8),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.2),
+                            blurRadius: 4,
+                            offset: const Offset(2, 2),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          letter,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    childWhenDragging: Container(
+                      width: 60,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.yellow.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange, width: 2),
+                      ),
+                    ),
+                    child: Container(
+                      width: 60,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        color: Colors.yellow,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange, width: 2),
+                      ),
+                      child: Center(
+                        child: Text(
+                          letter,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAudioExplorer() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "The Audio Explorer",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Listen and find the correct letter!",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Friendly robot with speaker
+            Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(50),
+              ),
+              child: const Icon(
+                Icons.smart_toy,
+                size: 50,
+                color: Colors.blue,
+              ),
+            ),
+            
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () async {
+                await _tts.speak("Can you find the letter $_targetLetter?");
+              },
+              icon: const Icon(Icons.volume_up),
+              label: const Text("Listen"),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+            ),
+            
+            const SizedBox(height: 24),
+            
+            // Letter buttons in a responsive grid
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: (_audioLetters.isNotEmpty ? _audioLetters : ['a', 'b', 'c']).map((letter) => 
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedAudioLetter = letter;
+                    });
+                    
+                    if (letter == _targetLetter) {
+                      _tts.speak("Great job!");
+                      setState(() {
+                        _audioExplorerComplete = true;
+                      });
+                    } else {
+                      _shakeController.forward().then((_) => _shakeController.reverse());
+                      _tts.speak("Try again!");
+                    }
+                  },
+                  child: AnimatedBuilder(
+                    animation: _shakeController,
+                    builder: (context, child) {
+                      return Transform.translate(
+                        offset: Offset(
+                          math.sin(_shakeController.value * 2 * math.pi) * 5,
+                          0,
+                        ),
+                        child: Container(
+                          width: 70,
+                          height: 70,
+                          decoration: BoxDecoration(
+                            color: _selectedAudioLetter == letter 
+                                ? (letter == _targetLetter ? Colors.green : Colors.red)
+                                : Colors.white,
+                            border: Border.all(
+                              color: _selectedAudioLetter == letter 
+                                  ? (letter == _targetLetter ? Colors.green : Colors.red)
+                                  : Colors.grey, 
+                              width: 2
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: _selectedAudioLetter == letter ? [
+                              BoxShadow(
+                                color: (letter == _targetLetter ? Colors.green : Colors.red).withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ] : null,
+                          ),
+                          child: Center(
+                            child: Text(
+                              letter,
+                              style: TextStyle(
+                                fontSize: 32,
+                                fontWeight: FontWeight.bold,
+                                color: _selectedAudioLetter == letter ? Colors.white : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMatchUpForest() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "The Match-Up Forest",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Connect lowercase letters with their uppercase friends",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            Row(
+              children: [
+                // Lowercase column
+                Expanded(
+                  child: Column(
+                    children: (_lowercaseLetters.isNotEmpty ? _lowercaseLetters : ['h', 'i', 'e', 'm', 'f']).map((letter) => 
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedLowercase = letter;
+                            if (_selectedUppercase != null && 
+                                _letterPairs[letter] == _selectedUppercase) {
+                              _matchedPairs.add(letter);
+                              _matchedPairs.add(_selectedUppercase!);
+                              _tts.speak("Perfect match!");
+                              _selectedLowercase = null;
+                              _selectedUppercase = null;
+                              
+                              if (_matchedPairs.length == 20) {
+                                _matchUpComplete = true;
+                              }
+                            }
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _matchedPairs.contains(letter) 
+                                  ? Colors.green 
+                                  : _selectedLowercase == letter 
+                                      ? Colors.blue 
+                                      : Colors.blue.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Center(
+                            child: Text(
+                              letter,
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: _matchedPairs.contains(letter) || _selectedLowercase == letter ? Colors.white : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ).toList(),
+                  ),
+                ),
+                
+                const SizedBox(width: 16),
+                
+                // Uppercase column
+                Expanded(
+                  child: Column(
+                    children: (_uppercaseLetters.isNotEmpty ? _uppercaseLetters : ['N', 'I', 'D', 'M', 'F']).map((letter) => 
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedUppercase = letter;
+                            if (_selectedLowercase != null && 
+                                _letterPairs[_selectedLowercase!] == letter) {
+                              _matchedPairs.add(_selectedLowercase!);
+                              _matchedPairs.add(letter);
+                              _tts.speak("Perfect match!");
+                              _selectedLowercase = null;
+                              _selectedUppercase = null;
+                              
+                              if (_matchedPairs.length == 20) {
+                                _matchUpComplete = true;
+                              }
+                            }
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: _matchedPairs.contains(letter) 
+                                ? Colors.green 
+                                : _selectedUppercase == letter 
+                                    ? Colors.orange 
+                                    : Colors.orange.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Center(
+                            child: Text(
+                              letter,
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: _matchedPairs.contains(letter) || _selectedUppercase == letter 
+                                    ? Colors.white 
+                                    : Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ).toList(),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReadingRainbow() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              "The Reading Rainbow",
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              "Tap words to hear them, then read them aloud!",
+              style: TextStyle(fontSize: 14, color: Colors.black54),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            
+            // Word grid
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: (_readingWords.isNotEmpty ? _readingWords : ['nature', 'might', 'strong']).map((word) => 
+                GestureDetector(
+                  onTap: () async {
+                    await _tts.speak(word);
+                    setState(() {
+                      _readWords.add(word);
+                      if (_readWords.length == _readingWords.length) {
+                        _readingRainbowComplete = true;
+                      }
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _readWords.contains(word) 
+                          ? Colors.green.withOpacity(0.3)
+                          : Colors.white,
+                      border: Border.all(
+                        color: _readWords.contains(word) ? Colors.green : Colors.grey,
+                        width: 2,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: _readWords.contains(word) ? [
+                        BoxShadow(
+                          color: Colors.green.withOpacity(0.3),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ] : null,
+                    ),
+                    child: Text(
+                      word,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: _readWords.contains(word) ? Colors.green.shade700 : Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+              ).toList(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCurrentActivity() {
+    switch (_currentActivity) {
+      case 0:
+        return _buildRhymeTimePop();
+      case 1:
+        return _buildLetterBuilder();
+      case 2:
+        return _buildImageToWordSnap();
+      case 3:
+        return _buildStoryteller();
+      case 4:
+        return _buildNumberTable();
+      case 5:
+        return _buildAnimalCounting();
+      case 6:
+        return _buildDicePath();
+      case 7:
+        return _buildShapeDetective();
+      case 8:
+        return _buildLetterSorter();
+      case 9:
+        return _buildAudioExplorer();
+      case 10:
+        return _buildMatchUpForest();
+      case 11:
+        return _buildReadingRainbow();
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void _nextActivity() {
+    // Check completion for current activity
+    bool canProgress = false;
+    switch (_currentActivity) {
+      case 0:
+        canProgress = _rhymeComplete;
+        break;
+      case 1:
+        canProgress = _letterBuilderComplete;
+        break;
+      case 2:
+        canProgress = _imageSnapComplete;
+        break;
+      case 3:
+        canProgress = _storytellerComplete;
+        break;
+      case 4:
+        canProgress = _numberTableComplete;
+        break;
+      case 5:
+        canProgress = _animalCountingComplete;
+        break;
+      case 6:
+        canProgress = _dicePathComplete;
+        break;
+      case 7:
+        canProgress = _shapeDetectiveComplete;
+        break;
+      case 8:
+        canProgress = _letterSorterComplete;
+        break;
+      case 9:
+        canProgress = _audioExplorerComplete;
+        break;
+      case 10:
+        canProgress = _matchUpComplete;
+        break;
+      case 11:
+        canProgress = _readingRainbowComplete;
+        break;
+    }
+    
+    if (canProgress && _currentActivity < 11) {
+      setState(() {
+        _currentActivity++;
+        _completedActivities++;
+      });
+    } else if (_currentActivity == 11 && canProgress) {
+      _showCompletionDialog();
+    } else if (!canProgress) {
+      _tts.speak("Complete this activity first!");
+    }
+  }
+
+  void _showCompletionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Assessment Complete!"),
+        content: const Text("Great job! You've completed all 12 activities!"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).pop();
+            },
+            child: const Text("Finish"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9F9FF),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: const BackButton(color: Colors.black54),
+        title: Column(
+          children: const [
+            Text("6 Years Assessment", style: TextStyle(color: Color(0xFF1A2B47), fontSize: 18, fontWeight: FontWeight.bold)),
+            Text("Dysgraphia-Friendly Activities", style: TextStyle(color: Colors.purple, fontSize: 12)),
+          ],
+        ),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          _buildActivityIndicator(),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: _buildCurrentActivity(),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(20),
+            child: ElevatedButton(
+              onPressed: _nextActivity,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+              ),
+              child: const Text("Next Activity"),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Custom painter for triangle shapes
+class TrianglePainter extends CustomPainter {
+  final Color color;
+  
+  TrianglePainter(this.color);
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    
+    final path = Path();
+    path.moveTo(size.width / 2, 0);
+    path.lineTo(0, size.height);
+    path.lineTo(size.width, size.height);
+    path.close();
+    
+    canvas.drawPath(path, paint);
+  }
+  
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}

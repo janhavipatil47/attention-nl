@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +6,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class QuestionnaireService {
   static const String _localResponsesKey = 'questionnaire_responses_local';
+
+  /// Helper function to fire and forget futures without awaiting them
+  static void unawaited(Future<void> future) {
+    // Intentionally not awaiting the future
+    future.catchError((e) {
+      // Silently handle errors to prevent unhandled exceptions
+      print('Unawaited future error: $e');
+    });
+  }
 
   static const List<String> questions = [
     'My child gets frustrated when learning something new',
@@ -107,15 +117,42 @@ class QuestionnaireService {
       ),
     );
 
-    await FirebaseFirestore.instance.collection('questionnaire_responses').add({
-      'userId': userId,
-      'timestamp': DateTime.now().toUtc(),
-      'responses': firestoreResponses,
-      'totalScore': totalScore,
-      'additionalObservations': additionalObservations?.trim() ?? '',
-    });
+    // Save locally first for immediate response
+    await submitQuestionnaireResponsesLocally(
+      userId: userId,
+      responses: responses,
+      additionalObservations: additionalObservations,
+    );
+
+    // Submit to Firestore in background without blocking
+    unawaited(_submitToFirestore(
+      userId: userId,
+      firestoreResponses: firestoreResponses,
+      totalScore: totalScore,
+      additionalObservations: additionalObservations,
+    ));
 
     return totalScore;
+  }
+
+  static Future<void> _submitToFirestore({
+    required String userId,
+    required Map<String, int> firestoreResponses,
+    required int totalScore,
+    String? additionalObservations,
+  }) async {
+    try {
+      await FirebaseFirestore.instance.collection('questionnaire_responses').add({
+        'userId': userId,
+        'timestamp': DateTime.now().toUtc(),
+        'responses': firestoreResponses,
+        'totalScore': totalScore,
+        'additionalObservations': additionalObservations?.trim() ?? '',
+      });
+    } catch (e) {
+      // Silently handle Firestore errors - data is already saved locally
+      print('Firestore submission failed: $e');
+    }
   }
 
   static Future<int> submitQuestionnaireResponsesLocally({
