@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
+import 'login.dart';
 import 'childDetails.dart';
 
 class NeuroLearnSignUp extends StatefulWidget {
@@ -10,6 +12,60 @@ class NeuroLearnSignUp extends StatefulWidget {
 
 class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
   bool isSignUp = true; // Toggle state
+  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleSignUp() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = await AuthService.signUp(
+        fullName: _nameController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChildInfoScreen(
+            userId: user.id,
+            userName: user.fullName,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -61,15 +117,26 @@ class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
               const SizedBox(height: 30),
 
               // Form Fields
-              _buildInputField(label: "Full Name", hint: "Enter your full name", icon: Icons.person_outline),
+              _buildInputField(
+                label: "Full Name",
+                hint: "Enter your full name",
+                icon: Icons.person_outline,
+                controller: _nameController,
+              ),
               const SizedBox(height: 15),
-              _buildInputField(label: "Email Address", hint: "Enter your email", icon: Icons.email_outlined),
+              _buildInputField(
+                label: "Email Address",
+                hint: "Enter your email",
+                icon: Icons.email_outlined,
+                controller: _emailController,
+              ),
               const SizedBox(height: 15),
               _buildInputField(
                 label: "Password", 
                 hint: "Create a password", 
                 icon: Icons.lock_outline, 
-                isPassword: true
+                controller: _passwordController,
+                isPassword: true,
               ),
 
               const SizedBox(height: 30),
@@ -88,18 +155,16 @@ class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const ChildInfoScreen()),
-                    );
-                  },
+                  onPressed: _isLoading ? null : _handleSignUp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  child: const Text("Get Started", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  child: Text(
+                    _isLoading ? 'Creating account...' : 'Get Started',
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
 
@@ -111,7 +176,12 @@ class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
                 children: [
                   const Text("Already have an account? ", style: TextStyle(color: Colors.black54)),
                   GestureDetector(
-                    onTap: () {},
+                    onTap: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (context) => const NeuroLearnLogin()),
+                      );
+                    },
                     child: const Text("Sign In", style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
                   ),
                 ],
@@ -134,7 +204,17 @@ class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
   Widget _buildToggleItem(String title, bool active) {
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => isSignUp = (title == "Sign Up")),
+        onTap: () {
+          if (title == 'Login') {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const NeuroLearnLogin()),
+            );
+            return;
+          }
+
+          setState(() => isSignUp = true);
+        },
         child: Container(
           margin: const EdgeInsets.all(4),
           decoration: BoxDecoration(
@@ -155,13 +235,20 @@ class _NeuroLearnSignUpState extends State<NeuroLearnSignUp> {
   }
 
   // Text Field Helper
-  Widget _buildInputField({required String label, required String hint, required IconData icon, bool isPassword = false}) {
+  Widget _buildInputField({
+    required String label,
+    required String hint,
+    required IconData icon,
+    required TextEditingController controller,
+    bool isPassword = false,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1A2B47))),
         const SizedBox(height: 8),
         TextField(
+          controller: controller,
           obscureText: isPassword,
           decoration: InputDecoration(
             hintText: hint,

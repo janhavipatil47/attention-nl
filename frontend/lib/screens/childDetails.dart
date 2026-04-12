@@ -2,7 +2,14 @@ import 'package:flutter/material.dart';
 import 'homePage.dart';
 
 class ChildInfoScreen extends StatelessWidget {
-  const ChildInfoScreen({super.key});
+  const ChildInfoScreen({
+    super.key,
+    required this.userId,
+    required this.userName,
+  });
+
+  final String userId;
+  final String userName;
 
   @override
   Widget build(BuildContext context) {
@@ -118,7 +125,12 @@ class ChildInfoScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const LearningHomeScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => LearningHomeScreen(
+                          userId: userId,
+                          userName: userName,
+                        ),
+                      ),
                     );
                   },
                   style: ElevatedButton.styleFrom(

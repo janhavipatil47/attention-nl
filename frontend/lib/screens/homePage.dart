@@ -1,14 +1,56 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import 'assessment.dart';
 import 'activities.dart';
 import 'report.dart';
+import 'login.dart';
 
 class LearningHomeScreen extends StatelessWidget {
-  const LearningHomeScreen({super.key});
+  const LearningHomeScreen({
+    super.key,
+    required this.userId,
+    required this.userName,
+  });
+
+  final String userId;
+  final String userName;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: Text(
+          userName,
+          style: const TextStyle(
+            color: Color(0xFF1A2B47),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await AuthService.signOut();
+
+              if (!context.mounted) {
+                return;
+              }
+
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (context) => const NeuroLearnLogin()),
+                (route) => false,
+              );
+            },
+            icon: const Icon(Icons.logout, color: Color(0xFFB23A48)),
+            label: const Text(
+              'Logout',
+              style: TextStyle(color: Color(0xFFB23A48), fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
       bottomNavigationBar: const CustomBottomNavBar(),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -16,7 +58,7 @@ class LearningHomeScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const TopGreetingCard(),
+              TopGreetingCard(userName: userName),
               const SizedBox(height: 18),
 
               // Center illustration
@@ -87,7 +129,9 @@ class LearningHomeScreen extends StatelessWidget {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const SmartAssessmentScreen()),
+                      MaterialPageRoute(
+                        builder: (context) => SmartAssessmentScreen(userId: userId),
+                      ),
                     );
                   },
                   icon: const Icon(Icons.auto_awesome, color: Colors.white),
@@ -273,7 +317,9 @@ class LearningHomeScreen extends StatelessWidget {
 }
 
 class TopGreetingCard extends StatelessWidget {
-  const TopGreetingCard({super.key});
+  const TopGreetingCard({super.key, required this.userName});
+
+  final String userName;
 
   @override
   Widget build(BuildContext context) {
@@ -324,9 +370,9 @@ class TopGreetingCard extends StatelessWidget {
           ),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
-                "Hi, Priya 👋",
+                'Hi, $userName 👋',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w600,

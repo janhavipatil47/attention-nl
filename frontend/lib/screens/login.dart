@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
 import 'accountCreationScreen.dart';
 import 'homePage.dart';
+import 'signup.dart';
 
 class NeuroLearnLogin extends StatefulWidget {
   const NeuroLearnLogin({super.key});
@@ -11,6 +13,57 @@ class NeuroLearnLogin extends StatefulWidget {
 
 class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
   bool isLogin = true; // Set to true for this screen
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLogin() async {
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final user = await AuthService.signIn(
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LearningHomeScreen(
+            userId: user.id,
+            userName: user.fullName,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -79,6 +132,7 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
                 label: "Email Address", 
                 hint: "Enter your email", 
                 icon: Icons.email_outlined,
+                controller: _emailController,
               ),
               const SizedBox(height: 20),
               _buildInputField(
@@ -86,6 +140,7 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
                 hint: "Enter your password", 
                 icon: Icons.lock_outline, 
                 isPassword: true,
+                controller: _passwordController,
               ),
 
               const SizedBox(height: 35),
@@ -110,20 +165,15 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
                   ],
                 ),
                 child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const LearningHomeScreen()),
-                    );
-                  },
+                  onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.transparent,
                     shadowColor: Colors.transparent,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                   ),
-                  child: const Text(
-                    "Login",
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                  child: Text(
+                    _isLoading ? 'Logging in...' : 'Login',
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                 ),
               ),
@@ -160,7 +210,17 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
   Widget _buildToggleItem(String title, bool active) {
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => isLogin = (title == "Login")),
+        onTap: () {
+          if (title == 'Sign Up') {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const NeuroLearnSignUp()),
+            );
+            return;
+          }
+
+          setState(() => isLogin = true);
+        },
         child: Container(
           margin: const EdgeInsets.all(5),
           decoration: BoxDecoration(
@@ -186,6 +246,7 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
     required String label, 
     required String hint, 
     required IconData icon, 
+    required TextEditingController controller,
     bool isPassword = false,
   }) {
     return Column(
@@ -197,6 +258,7 @@ class _NeuroLearnLoginState extends State<NeuroLearnLogin> {
         ),
         const SizedBox(height: 10),
         TextField(
+          controller: controller,
           obscureText: isPassword,
           decoration: InputDecoration(
             hintText: hint,

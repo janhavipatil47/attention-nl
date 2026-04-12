@@ -193,7 +193,7 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                   });
 
                   try {
-                    await QuestionnaireService.submitQuestionnaireResponsesLocally(
+                    await QuestionnaireService.submitQuestionnaireResponses(
                       userId: widget.userId,
                       responses: _responses,
                       additionalObservations: _observationsController.text,
