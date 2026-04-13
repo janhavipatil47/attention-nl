@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/assessment_report_service.dart';
+import 'report.dart';
 
 const Duration _shakeDuration = Duration(milliseconds: 600);
 
@@ -48,6 +50,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   double _circleCompletionPercent = 0.0;
   Set<int> _numberDragDropPlaced = <int>{};
   Set<int> _patternDragPlaced = <int>{};
+  bool _isFinalizing = false;
+  final DateTime _assessmentStartedAt = DateTime.now();
 
   @override
   void initState() {
@@ -240,10 +244,252 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
               _sequenceCard(),
             ],
           ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _isFinalizing ? null : _completeAssessment,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6E56CF),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 52),
+            ),
+            child: Text(_isFinalizing ? 'Generating Report...' : 'Complete Assessment'),
+          ),
+          const SizedBox(height: 24),
         ],
       ),
     );
   }
+
+  Future<void> _completeAssessment() async {
+    setState(() => _isFinalizing = true);
+    try {
+      final Map<String, double> skillScores = _calculateDomainScores();
+      final Map<String, dynamic> rawMetrics = _buildRawMetrics();
+      final Map<String, String> skillLabels = <String, String>{
+        'listening': 'Listening',
+        'writing_motor': 'Writing & Motor',
+        'math': 'Math',
+        'attention': 'Attention & Focus',
+        'memory': 'Memory & Sequencing',
+      };
+      final List<String> assessedActivities = _isAge45
+          ? <String>[
+              'Sound Match',
+              'Rhyme Match',
+              'Animal Sound',
+              'Picture Pair',
+              'Writing Wizard',
+              'Busy Shapes',
+              'Color Garden',
+              'Missing Letter',
+              'Arrow Tracing',
+              'Circle Creation',
+              'Dino Feeding',
+              'Count Objects',
+              'Find Dots',
+              'Big Circle',
+              'Number Sequence',
+            ]
+          : <String>[
+              'Sound Match',
+              'Rhyme Match',
+              'Animal Sound',
+              'Picture Pair',
+              'Stroke Practice',
+              'Connect Dots',
+              'Trace Line',
+              'Curved Shape',
+              'Count Objects',
+              'Find Dots',
+              'Big Circle',
+              'Number Sequence',
+            ];
+
+      final String reportId = await AssessmentReportService.createAssessmentReport(
+        assessmentType: 'age_3_to_5',
+        childAge: _childAge,
+        skillScores: skillScores,
+        skillLabels: skillLabels,
+        assessedActivities: assessedActivities,
+        rawMetrics: rawMetrics,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (BuildContext context) => ReportScreen(reportId: reportId)),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not generate report: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFinalizing = false);
+      }
+    }
+  }
+
+  Map<String, double> _calculateDomainScores() {
+    final int listeningAttempts = <int?>[
+      _soundMatchChoice,
+      _rhymeChoice,
+      _animalChoice,
+      _picturePairChoice,
+    ].where((int? value) => value != null).length;
+    final double soundScore = _choiceScore(_soundMatchChoice, 0);
+    final double rhymeScore = _choiceScore(_rhymeChoice, 0);
+    final double animalScore = _choiceScore(_animalChoice, 0);
+    final double picturePairScore = _choiceScore(_picturePairChoice, 0);
+    final double listeningScore = _average(<double>[
+      soundScore,
+      rhymeScore,
+      animalScore,
+      picturePairScore,
+    ]);
+
+    final int motorTarget = _isAge45 ? 4 : 3;
+    final double writingWizardScore = _clamp(_writingWizardProgress * 100);
+    final double busyShapesScore =
+        _clamp((_busyShapesPlaced.length / motorTarget) * 100);
+    final double gardenScore = _clamp((_gardenColored.length / motorTarget) * 100);
+    final double missingLetterScore = _choiceScore(_missingLetterChoice, 0);
+    final double arrowScore = _clamp((_arrowTracingProgress ?? 0) * 100);
+    final double circleScore = _clamp(_circleCompletionPercent * 100);
+    final double dinoScore = _clamp((_dinoFedItems.length / _dinoTarget) * 100);
+    final double writingScore = _average(<double>[
+      writingWizardScore,
+      busyShapesScore,
+      gardenScore,
+      missingLetterScore,
+      arrowScore,
+      circleScore,
+      dinoScore,
+    ]);
+
+    final double countScore = _clamp((_countTapped.length / _countTarget) * 100);
+    final double dotsScore = _choiceScore(_dotsChoice, 1);
+    final double sizeScore = _choiceScore(_sizeChoice, 0);
+    final double sequenceScore = _choiceScore(_sequenceChoice, 1);
+    final double memoryScore = _average(<double>[
+      countScore,
+      dotsScore,
+      sizeScore,
+      sequenceScore,
+      missingLetterScore,
+    ]);
+    final double mathScore = _average(<double>[
+      countScore,
+      dotsScore,
+      sizeScore,
+      sequenceScore,
+    ]);
+
+    final int fullyCompleted = <bool>[
+      soundScore >= 75,
+      rhymeScore >= 75,
+      animalScore >= 75,
+      picturePairScore >= 75,
+      writingWizardScore >= 75,
+      busyShapesScore >= 70,
+      gardenScore >= 70,
+      arrowScore >= 70,
+      circleScore >= 70,
+      dinoScore >= 70,
+      countScore >= 70,
+      dotsScore >= 75,
+      sizeScore >= 75,
+      sequenceScore >= 75,
+    ].where((bool v) => v).length;
+    final double engagement = _clamp((_attemptedCount / 15) * 100);
+    final double completionQuality = _clamp((fullyCompleted / 14) * 100);
+    final double attentionScore = _clamp((engagement * 0.55) + (completionQuality * 0.45));
+
+    return <String, double>{
+      'listening': _clamp(listeningScore),
+      'writing_motor': _clamp(writingScore),
+      'math': _clamp(mathScore),
+      'attention': _clamp(attentionScore),
+      'memory': _clamp(memoryScore),
+    };
+  }
+
+  Map<String, dynamic> _buildRawMetrics() {
+    final int completedActivities = <bool>[
+      _soundMatchChoice != null,
+      _rhymeChoice != null,
+      _animalChoice != null,
+      _picturePairChoice != null,
+      _writingWizardProgress >= 0.6,
+      _busyShapesPlaced.isNotEmpty,
+      _gardenColored.isNotEmpty,
+      _missingLetterChoice != null,
+      (_arrowTracingProgress ?? 0) > 0,
+      _circleCompletionPercent >= 0.6,
+      _dinoFedItems.isNotEmpty,
+      _countTapped.isNotEmpty,
+      _dotsChoice != null,
+      _sizeChoice != null,
+      _sequenceChoice != null,
+    ].where((bool done) => done).length;
+    final int sessionDurationSeconds =
+        DateTime.now().difference(_assessmentStartedAt).inSeconds;
+    final double objectiveAccuracy = _average(<double>[
+      _choiceScore(_soundMatchChoice, 0),
+      _choiceScore(_rhymeChoice, 0),
+      _choiceScore(_animalChoice, 0),
+      _choiceScore(_picturePairChoice, 0),
+      _choiceScore(_dotsChoice, 1),
+      _choiceScore(_sizeChoice, 0),
+      _choiceScore(_sequenceChoice, 1),
+      _choiceScore(_missingLetterChoice, 0),
+    ]);
+
+    return <String, dynamic>{
+      'completedActivities': completedActivities,
+      'totalActivities': 15,
+      'measuredActivities': 8,
+      'answeredMeasuredActivities': <bool>[
+        _soundMatchChoice != null,
+        _rhymeChoice != null,
+        _animalChoice != null,
+        _picturePairChoice != null,
+        _dotsChoice != null,
+        _sizeChoice != null,
+        _sequenceChoice != null,
+        _missingLetterChoice != null,
+      ].where((bool v) => v).length,
+      'consistencyScore': _clamp(60 + (_attemptedCount / 15) * 35),
+      'objectiveAccuracy': objectiveAccuracy,
+      'sessionDurationSeconds': sessionDurationSeconds,
+      'attemptedActivities': _attemptedCount,
+      'writingWizardProgress': (_writingWizardProgress * 100).round(),
+      'circleCompletionPercent': (_circleCompletionPercent * 100).round(),
+    };
+  }
+
+  double _choiceScore(int? selected, int correct) {
+    if (selected == null) {
+      return 0;
+    }
+    return selected == correct ? 100 : 25;
+  }
+
+  double _average(List<double> values) {
+    if (values.isEmpty) {
+      return 0;
+    }
+    final double total = values.fold<double>(0, (double sum, double v) => sum + v);
+    return _clamp(total / values.length);
+  }
+
+  double _clamp(double value) => value.clamp(0, 100).toDouble();
 
   Widget _soundMatchCard() {
     final List<String> labels =

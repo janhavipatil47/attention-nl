@@ -1,0 +1,8 @@
+{
+  "firestore": {
+    "rules": "frontend/firestore.rules"
+  },
+  "functions": {
+    "source": "functions"
+  }
+}

@@ -18,6 +18,30 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
   final Map<int, int> _responses = <int, int>{};
   final TextEditingController _observationsController = TextEditingController();
   bool _isSubmitting = false;
+  bool _childDetailsChecked = false;
+  bool _hasChildDetails = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkChildDetails();
+  }
+
+  Future<void> _checkChildDetails() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String childName = (prefs.getString('childName') ?? '').trim();
+    final int? childAge = prefs.getInt('childAgeValue');
+    final String childGrade = (prefs.getString('childGrade') ?? '').trim();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _hasChildDetails = childName.isNotEmpty && childAge != null && childGrade.isNotEmpty;
+      _childDetailsChecked = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -27,6 +51,46 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_childDetailsChecked) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (!_hasChildDetails) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: const BackButton(color: Colors.black54),
+          title: const Text(
+            'Smart Assessment',
+            style: TextStyle(color: Color(0xFF1A2B47), fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Please complete child details before starting assessment.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9FF),
       appBar: AppBar(
@@ -214,13 +278,16 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
 
                     // Get current user's ageOfChild from Firebase and route accordingly
                     final currentUser = await AuthService.currentUser();
-                    final int? ageOfChild = currentUser?.ageOfChild;
+                    final SharedPreferences prefs =
+                        await SharedPreferences.getInstance();
+                    final int? ageFromPrefs = prefs.getInt('childAgeValue');
+                    final int? ageOfChild = ageFromPrefs ?? currentUser?.ageOfChild;
 
                     print('DEBUG: Current user = ${currentUser?.email}');
                     print('DEBUG: Current user ageOfChild = $ageOfChild');
                     
-                    // Temporary fix: Set age to 6 for testing if null
-                    final int childAge = ageOfChild ?? 6;
+                    // Prefer actual child age; default to 5 (younger flow) if missing.
+                    final int childAge = ageOfChild ?? 5;
                     print('DEBUG: Using childAge = $childAge');
                     print('DEBUG: childAge >= 6 = ${childAge >= 6}');
 

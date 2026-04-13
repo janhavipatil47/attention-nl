@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import 'assessment.dart';
 import 'activities.dart';
+import 'childDetails.dart';
 import 'report.dart';
 import 'login.dart';
 
@@ -126,7 +128,31 @@ class LearningHomeScreen extends StatelessWidget {
                   ],
                 ),
                 child: ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
+                    final SharedPreferences prefs = await SharedPreferences.getInstance();
+                    final String childName = (prefs.getString('childName') ?? '').trim();
+                    final int? childAge = prefs.getInt('childAgeValue');
+                    final String childGrade = (prefs.getString('childGrade') ?? '').trim();
+                    final bool hasChildDetails =
+                        childName.isNotEmpty && childAge != null && childGrade.isNotEmpty;
+
+                    if (!context.mounted) {
+                      return;
+                    }
+
+                    if (!hasChildDetails) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (BuildContext context) => ChildInfoScreen(
+                            userId: userId,
+                            userName: userName,
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
                     Navigator.push(
                       context,
                       MaterialPageRoute(

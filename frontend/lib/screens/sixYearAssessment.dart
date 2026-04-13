@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'dart:math' as math;
+import '../services/assessment_report_service.dart';
+import 'report.dart';
 
 class SixYearAssessmentScreen extends StatefulWidget {
   const SixYearAssessmentScreen({super.key});
@@ -19,6 +21,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   int _currentActivity = 0;
   int _completedActivities = 0;
+  bool _isFinalizing = false;
+  final DateTime _assessmentStartedAt = DateTime.now();
 
   // Rhyme-Time Pop state (NEW)
   final List<String> _rhymeCenters = ['hand', 'cat', 'ball', 'tree'];
@@ -3050,16 +3054,214 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         content: const Text("Great job! You've completed all 12 activities!"),
         actions: [
           TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              Navigator.of(context).pop();
-            },
-            child: const Text("Finish"),
+            onPressed: _isFinalizing
+                ? null
+                : () async {
+                    await _finalizeAssessmentAndOpenReport();
+                  },
+            child: Text(_isFinalizing ? "Please wait..." : "Finish"),
           ),
         ],
       ),
     );
   }
+
+  Future<void> _finalizeAssessmentAndOpenReport() async {
+    setState(() => _isFinalizing = true);
+    try {
+      final Map<String, double> skillScores = _calculateDomainScores();
+      final Map<String, String> skillLabels = <String, String>{
+        'reading_language': 'Reading & Language',
+        'listening': 'Listening',
+        'writing_tracing': 'Writing & Tracing',
+        'math': 'Math & Number Sense',
+        'attention': 'Attention & Focus',
+        'memory': 'Memory & Matching',
+      };
+      final List<String> assessedActivities = <String>[
+        'Rhyme-Time Pop',
+        'Letter Builder',
+        'Image-to-Word Snap',
+        'Tracing Practice',
+        'Visual-to-Symbol Table',
+        'Animal Counting Corral',
+        'Dice Path Sequencing',
+        'Geometric Shape Detective',
+        'Letter Sorter',
+        'Audio Explorer',
+        'Match-Up Forest',
+        'Reading Rainbow',
+      ];
+      final String reportId = await AssessmentReportService.createAssessmentReport(
+        assessmentType: 'age_6_to_7',
+        childAge: 6,
+        skillScores: skillScores,
+        skillLabels: skillLabels,
+        assessedActivities: assessedActivities,
+        rawMetrics: _buildRawMetrics(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(context).pop();
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (BuildContext context) => ReportScreen(reportId: reportId),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not generate report: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFinalizing = false);
+      }
+    }
+  }
+
+  Map<String, double> _calculateDomainScores() {
+    final int totalRhymes = _rhymingWords[_currentRhymeCenter]?.length ?? 0;
+    final double rhymeScore = totalRhymes == 0
+        ? (_rhymeComplete ? 100 : 0)
+        : _clamp((_poppedBubbles.length / totalRhymes) * 100);
+    final double imageWordScore = _imageSnapComplete
+        ? 100
+        : _clamp((_currentImageIndex / _imageWords.length) * 100);
+    final double readingFluencyScore =
+        _clamp((_readWords.length / _readingWords.length) * 100);
+    final double reading = _weightedAverage(<double>[
+      rhymeScore,
+      imageWordScore,
+      readingFluencyScore
+    ], <double>[0.30, 0.30, 0.40]);
+
+    final int builtParts = _letterParts.length;
+    final double letterBuilderScore = _letterBuilderComplete
+        ? 100
+        : _clamp((builtParts / 2) * 100);
+    final double tracingScore = _tracingComplete
+        ? _clamp((_tracingAccuracy * 100) + 8)
+        : _clamp(_tracingAccuracy * 100);
+    final double letterSorterScore = _correctPlacements.isEmpty
+        ? 0
+        : _clamp((_correctPlacements.where((bool v) => v).length /
+                _correctPlacements.length) *
+            100);
+    final double writing = _weightedAverage(
+      <double>[letterBuilderScore, tracingScore, letterSorterScore],
+      <double>[0.35, 0.40, 0.25],
+    );
+
+    final double diceScore = _clamp((_tappedDice.length / _diceSequence.length) * 100);
+    final int collectedShapes = _collectedShapes.values.where((bool v) => v).length;
+    final double shapeScore = _clamp((collectedShapes / _collectedShapes.length) * 100);
+    final double progressScore = _clamp(((_currentActivity + 1) / 12) * 100);
+    final double attention = _weightedAverage(
+      <double>[diceScore, shapeScore, progressScore],
+      <double>[0.35, 0.35, 0.30],
+    );
+
+    final double matchScore = _clamp((_matchedPairs.length / 20) * 100);
+    final double audioScore = _audioExplorerComplete ? 100 : (_selectedAudioLetter != null ? 40 : 0);
+    final int numberDone = _numberTable
+        .where((Map<String, dynamic> row) => row['completed'] == true)
+        .length;
+    final double numberTableScore =
+        _clamp((numberDone / _numberTable.length) * 100);
+    int animalCorrect = 0;
+    for (final Map<String, dynamic> group in _animalGroups) {
+      final String animal = group['animal'] as String;
+      final int target = group['count'] as int;
+      if (_animalNumberConnections[animal] == target) {
+        animalCorrect++;
+      }
+    }
+    final double animalScore =
+        _clamp((animalCorrect / _animalGroups.length) * 100);
+    final double memory = _weightedAverage(
+      <double>[matchScore, audioScore, numberTableScore, animalScore],
+      <double>[0.35, 0.15, 0.25, 0.25],
+    );
+    final double listening = _weightedAverage(
+      <double>[audioScore, rhymeScore],
+      <double>[0.55, 0.45],
+    );
+    final double math = _weightedAverage(
+      <double>[numberTableScore, animalScore, diceScore],
+      <double>[0.35, 0.35, 0.30],
+    );
+
+    return <String, double>{
+      'reading_language': reading,
+      'listening': listening,
+      'writing_tracing': writing,
+      'math': math,
+      'attention': attention,
+      'memory': memory,
+    };
+  }
+
+  Map<String, dynamic> _buildRawMetrics() {
+    final int sessionDurationSeconds =
+        DateTime.now().difference(_assessmentStartedAt).inSeconds;
+    final double objectiveAccuracy = _average(<double>[
+      _clamp((_poppedBubbles.length /
+              ((_rhymingWords[_currentRhymeCenter]?.length ?? 1))) *
+          100),
+      _clamp((_readWords.length / _readingWords.length) * 100),
+      _clamp((_correctPlacements.where((bool v) => v).length /
+              (_correctPlacements.isEmpty ? 1 : _correctPlacements.length)) *
+          100),
+      _clamp((_matchedPairs.length / 20) * 100),
+      _clamp((_tappedDice.length / _diceSequence.length) * 100),
+    ]);
+
+    return <String, dynamic>{
+      'completedActivities': _completedActivities + 1,
+      'totalActivities': 12,
+      'measuredActivities': 12,
+      'answeredMeasuredActivities': _completedActivities + 1,
+      'consistencyScore': _clamp(((_tracingAccuracy * 100) * 0.6) + (((_completedActivities + 1) / 12) * 100 * 0.4)),
+      'objectiveAccuracy': objectiveAccuracy,
+      'sessionDurationSeconds': sessionDurationSeconds,
+      'currentActivityIndex': _currentActivity,
+      'tracingAccuracy': (_tracingAccuracy * 100).round(),
+      'readWordsCompleted': _readWords.length,
+    };
+  }
+
+  double _average(List<double> values) {
+    if (values.isEmpty) {
+      return 0;
+    }
+    final double sum = values.fold<double>(0, (double a, double b) => a + b);
+    return _clamp(sum / values.length);
+  }
+
+  double _weightedAverage(List<double> values, List<double> weights) {
+    if (values.isEmpty || values.length != weights.length) {
+      return 0;
+    }
+    double numerator = 0;
+    double denominator = 0;
+    for (int i = 0; i < values.length; i++) {
+      numerator += values[i] * weights[i];
+      denominator += weights[i];
+    }
+    if (denominator == 0) {
+      return 0;
+    }
+    return _clamp(numerator / denominator);
+  }
+
+  double _clamp(double value) => value.clamp(0, 100).toDouble();
 
   @override
   Widget build(BuildContext context) {
