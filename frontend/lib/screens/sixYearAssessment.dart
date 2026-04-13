@@ -23,11 +23,17 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   // Rhyme-Time Pop state (NEW)
   final List<String> _rhymeCenters = ['hand', 'cat', 'ball', 'tree'];
   String _currentRhymeCenter = '';
-  final Map<String, List<String>> _rhymeOptions = {
-    'hand': ['band', 'sand', 'blue', 'jump', 'land', 'stand'],
-    'cat': ['bat', 'hat', 'dog', 'rat', 'mat', 'fish'],
-    'ball': ['tall', 'wall', 'fall', 'jump', 'call', 'small'],
-    'tree': ['bee', 'see', 'free', 'dog', 'knee', 'three']
+  final Map<String, List<String>> _rhymingWords = {
+    'hand': ['band', 'sand', 'land', 'stand'],
+    'cat': ['bat', 'hat', 'rat', 'mat'],
+    'ball': ['tall', 'wall', 'fall', 'call', 'small'],
+    'tree': ['bee', 'see', 'free', 'knee', 'three']
+  };
+  final Map<String, List<String>> _distractorWords = {
+    'hand': ['blue', 'jump'],
+    'cat': ['dog', 'fish'],
+    'ball': ['jump'],
+    'tree': ['dog']
   };
   List<String> _currentBubbles = [];
   Set<String> _poppedBubbles = {};
@@ -51,12 +57,42 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   String? _selectedLetter;
   bool _imageSnapComplete = false;
 
-  // Infinite Canvas Storyteller state (NEW)
-  final List<String> _stickers = ['🐕', '⚽', '🌳', '☁️', '🏠', '🚗', '🌸', '🦋'];
-  List<String> _placedStickers = [];
-  String _storyRecording = '';
-  bool _isRecording = false;
-  bool _storytellerComplete = false;
+  // Tracing Practice state (NEW)
+  final List<String> _practiceLetters = ['L', 'P', 'T', 'F'];
+  String _currentPracticeLetter = 'L';
+  List<Offset> _tracedPoints = [];
+  bool _isTracing = false;
+  bool _tracingComplete = false;
+  double _tracingAccuracy = 0.0;
+  bool _hasSpokenFeedback = false;
+  final Map<String, List<Offset>> _letterPaths = {
+    'L': [
+      const Offset(40, 40),   // Top of L
+      const Offset(40, 160),  // Bottom of L
+      const Offset(160, 160), // End of bottom line
+    ],
+    'P': [
+      const Offset(40, 40),   // Top of P
+      const Offset(40, 160),  // Bottom of P
+      const Offset(40, 100),  // Middle of P
+      const Offset(120, 40),  // Top right of curve
+      const Offset(120, 100), // Middle right of curve
+    ],
+    'T': [
+      const Offset(40, 40),   // Top left
+      const Offset(160, 40),  // Top right
+      const Offset(100, 40),  // Center
+      const Offset(100, 160), // Bottom
+    ],
+    'F': [
+      const Offset(40, 40),   // Top of F
+      const Offset(40, 160),  // Bottom of F
+      const Offset(40, 80),   // Middle
+      const Offset(120, 80),  // End of middle line
+      const Offset(40, 40),   // Top
+      const Offset(120, 40),  // End of top line
+    ],
+  };
 
   // Original Letter Sorter state
   final List<String> _letters = ['a', 'd', 'k', 'w'];
@@ -164,7 +200,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     
     // Initialize all arrays to prevent null errors
     _currentBubbles = ['band', 'sand', 'blue', 'jump'];
-    _placedStickers = [];
     _jumbledLetters = ['a', 'd', 'k', 'w'];
     _placedLetters = List.filled(4, '');
     _correctPlacements = List.filled(4, false);
@@ -207,19 +242,25 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   void _selectNewRhymeCenter() {
     setState(() {
       _currentRhymeCenter = _rhymeCenters[math.Random().nextInt(_rhymeCenters.length)];
-      _currentBubbles = List.from(_rhymeOptions[_currentRhymeCenter]!);
+      // Combine rhyming words and distractors
+      List<String> allWords = [..._rhymingWords[_currentRhymeCenter]!, ..._distractorWords[_currentRhymeCenter]!];
+      allWords.shuffle();
+      _currentBubbles = allWords;
       _poppedBubbles.clear();
     });
   }
 
   void _resetLetterBuilder() {
     setState(() {
-      _currentBuildLetter = ['d', 'b', 'p', 'q'][math.Random().nextInt(4)];
+      _currentBuildLetter = ['d', 'b', 'p', 'l'][math.Random().nextInt(4)];
       _selectedPart = null;
       _circlePosition = null;
       _letterBuilt = false;
+      _letterParts.clear();
     });
   }
+  
+  List<String> _letterParts = [];
 
   void _initializeNumberTable() {
     setState(() {
@@ -251,7 +292,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _popBubble(String bubble) {
     if (!_poppedBubbles.contains(bubble)) {
-      bool isRhyme = _rhymeOptions[_currentRhymeCenter]!.contains(bubble);
+      bool isRhyme = _rhymingWords[_currentRhymeCenter]!.contains(bubble);
       if (isRhyme) {
         setState(() {
           _poppedBubbles.add(bubble);
@@ -259,7 +300,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         _tts.speak('Good job! $bubble rhymes with ${_currentRhymeCenter}!');
         
         // Check if all rhyming bubbles are popped
-        int totalRhymes = _rhymeOptions[_currentRhymeCenter]!.length;
+        int totalRhymes = _rhymingWords[_currentRhymeCenter]!.length;
         if (_poppedBubbles.length == totalRhymes) {
           setState(() {
             _rhymeComplete = true;
@@ -274,20 +315,71 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _buildLetter(String part) {
     setState(() {
-      if (part == 'circle') {
-        _selectedPart = part;
-        _tts.speak('Now tap the line to build your letter!');
-      } else if (part == 'line') {
-        if (_selectedPart == 'circle') {
-          _letterBuilt = true;
-          _tts.speak('Great job building the letter $_currentBuildLetter!');
-          _letterBuilderComplete = true;
-        } else {
-          _tts.speak('First tap the circle, then tap the line!');
-          _shakeController.forward().then((_) => _shakeController.reverse());
-        }
+      if (!_letterParts.contains(part)) {
+        _letterParts.add(part);
+      }
+      
+      // Check if letter is properly built
+      bool isCorrect = _checkLetterBuilt();
+      if (isCorrect) {
+        _letterBuilt = true;
+        _tts.speak('Great job building the letter $_currentBuildLetter!');
+        _letterBuilderComplete = true;
+      } else {
+        // Give guidance based on current letter
+        _giveLetterGuidance();
       }
     });
+  }
+  
+  bool _checkLetterBuilt() {
+    if (_letterParts == null) return false;
+    switch (_currentBuildLetter) {
+      case 'p':
+        return _letterParts.contains('vertical_line') && _letterParts.contains('semi_circle');
+      case 'l':
+        return _letterParts.contains('vertical_line') && _letterParts.contains('horizontal_line');
+      case 'd':
+        return _letterParts.contains('vertical_line') && _letterParts.contains('circle');
+      case 'b':
+        return _letterParts.contains('vertical_line') && _letterParts.contains('circle');
+      default:
+        return false;
+    }
+  }
+  
+  void _giveLetterGuidance() {
+    if (_letterParts == null) return;
+    switch (_currentBuildLetter) {
+      case 'p':
+        if (!_letterParts.contains('vertical_line')) {
+          _tts.speak('Start with the straight line for letter P!');
+        } else if (!_letterParts.contains('semi_circle')) {
+          _tts.speak('Now add the round part at the top!');
+        }
+        break;
+      case 'l':
+        if (!_letterParts.contains('vertical_line')) {
+          _tts.speak('Start with the tall straight line for letter L!');
+        } else if (!_letterParts.contains('horizontal_line')) {
+          _tts.speak('Now add the short line at the bottom!');
+        }
+        break;
+      case 'd':
+        if (!_letterParts.contains('vertical_line')) {
+          _tts.speak('Start with the straight line for letter D!');
+        } else if (!_letterParts.contains('circle')) {
+          _tts.speak('Now add the round part!');
+        }
+        break;
+      case 'b':
+        if (!_letterParts.contains('vertical_line')) {
+          _tts.speak('Start with the straight line for letter B!');
+        } else if (!_letterParts.contains('circle')) {
+          _tts.speak('Now add the round parts!');
+        }
+        break;
+    }
   }
 
   void _selectImageLetter(String letter) {
@@ -309,24 +401,90 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     });
   }
 
-  void _addSticker(String sticker) {
+  void _startTracing() {
     setState(() {
-      _placedStickers.add(sticker);
+      _isTracing = true;
+      _tracedPoints.clear();
+      _tracingAccuracy = 0.0;
+      _hasSpokenFeedback = false;
     });
-    _tts.speak('Added $sticker to your scene!');
+    _tts.speak('Trace the letter $_currentPracticeLetter!');
   }
 
-  void _startRecording() async {
+  void _addTracingPoint(Offset point) {
+    if (!_isTracing) return;
+    
     setState(() {
-      _isRecording = true;
+      // Add point only if it's not too close to the last point (to reduce duplicates)
+      if (_tracedPoints.isEmpty || (point - _tracedPoints.last).distance > 2) {
+        _tracedPoints.add(point);
+      }
+      
+      // Calculate accuracy during tracing for live feedback
+      if (_tracedPoints.length >= 5) {
+        _calculateTracingAccuracy();
+      }
+      
+      // Check if tracing is complete
+      if (_tracedPoints.length >= 15 && !_tracingComplete) {
+        _calculateTracingAccuracy();
+        if (_tracingAccuracy > 0.6) {
+          _tracingComplete = true;
+          _isTracing = false;
+          _tts.speak('Excellent! You traced $_currentPracticeLetter with ${(_tracingAccuracy * 100).round()}% accuracy!');
+        } else if (!_hasSpokenFeedback) {
+          _hasSpokenFeedback = true;
+          _tts.speak('Keep practicing! Your accuracy is ${(_tracingAccuracy * 100).round()}%. Try to follow the dotted lines more closely.');
+        }
+      }
     });
-    // In a real app, you'd implement actual recording here
-    await Future.delayed(const Duration(seconds: 2));
-    setState(() {
-      _isRecording = false;
-      _storytellerComplete = true;
-      _tts.speak('Great story! You can listen to it anytime!');
-    });
+  }
+
+  void _calculateTracingAccuracy() {
+    final targetPath = _letterPaths[_currentPracticeLetter] ?? [];
+    if (targetPath.isEmpty || _tracedPoints.isEmpty) {
+      _tracingAccuracy = 0.0;
+      return;
+    }
+    
+    double totalDistance = 0;
+    double matchedDistance = 0;
+    
+    for (int i = 0; i < _tracedPoints.length - 1; i++) {
+      final tracedPoint = _tracedPoints[i];
+      double minDistance = double.infinity;
+      
+      // Find closest point on target path
+      for (final targetPoint in targetPath) {
+        final distance = (tracedPoint - targetPoint).distance;
+        if (distance < minDistance) {
+          minDistance = distance;
+        }
+      }
+      
+      totalDistance += 1.0;
+      if (minDistance < 20) {
+        matchedDistance += 1.0;
+      }
+    }
+    
+    _tracingAccuracy = totalDistance > 0 ? matchedDistance / totalDistance : 0.0;
+  }
+
+  void _nextPracticeLetter() {
+    final currentIndex = _practiceLetters.indexOf(_currentPracticeLetter);
+    if (currentIndex < _practiceLetters.length - 1) {
+      setState(() {
+        _currentPracticeLetter = _practiceLetters[currentIndex + 1];
+        _tracedPoints.clear();
+        _tracingComplete = false;
+        _isTracing = false;
+        _tracingAccuracy = 0.0;
+        _hasSpokenFeedback = false;
+      });
+    } else {
+      _tts.speak('Excellent! You completed all tracing exercises!');
+    }
   }
 
   @override
@@ -508,76 +666,24 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 border: Border.all(color: Colors.grey, width: 2),
               ),
               child: Center(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (_selectedPart == 'circle' || _letterBuilt)
-                      Container(
-                        width: 60,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.7),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Center(
-                          child: Text('○', style: TextStyle(fontSize: 40)),
-                        ),
-                      ),
-                    const SizedBox(width: 20),
-                    if (_letterBuilt || _selectedPart != null)
-                      Container(
-                        width: 10,
-                        height: 80,
-                        color: Colors.brown,
-                      ),
-                  ],
-                ),
+                child: _buildLetterVisual(),
               ),
             ),
             
             const SizedBox(height: 30),
             
             // Letter parts to choose from
-            const Text(
-              "Tap the circle, then tap the line to build your letter!",
-              style: TextStyle(fontSize: 14, color: Colors.black54),
+            Text(
+              _getLetterInstructions(),
+              style: const TextStyle(fontSize: 14, color: Colors.black54),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
             
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                GestureDetector(
-                  onTap: () => _buildLetter('circle'),
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: Colors.orange,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Center(
-                      child: Text('○', style: TextStyle(fontSize: 40, color: Colors.white)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 30),
-                GestureDetector(
-                  onTap: () => _buildLetter('line'),
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      color: Colors.brown,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Center(
-                      child: Text('|', style: TextStyle(fontSize: 40, color: Colors.white)),
-                    ),
-                  ),
-                ),
-              ],
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: _buildLetterPartButtons(),
             ),
             
             if (_letterBuilderComplete)
@@ -597,6 +703,262 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         ),
       ),
     );
+  }
+
+  Widget _buildLetterVisual() {
+    switch (_currentBuildLetter) {
+      case 'p':
+        return Stack(
+          children: [
+            // Vertical line
+            if (_letterParts != null && _letterParts.contains('vertical_line'))
+              Positioned(
+                left: 40,
+                top: 20,
+                child: Container(
+                  width: 8,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.brown,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            // Semi-circle at top
+            if (_letterParts != null && _letterParts.contains('semi_circle'))
+              Positioned(
+                left: 48,
+                top: 20,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      case 'l':
+        return Stack(
+          children: [
+            // Vertical line
+            if (_letterParts != null && _letterParts.contains('vertical_line'))
+              Positioned(
+                left: 40,
+                top: 20,
+                child: Container(
+                  width: 8,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.brown,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            // Horizontal line at bottom
+            if (_letterParts != null && _letterParts.contains('horizontal_line'))
+              Positioned(
+                left: 40,
+                top: 120,
+                child: Container(
+                  width: 60,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: Colors.brown,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+          ],
+        );
+      case 'd':
+        return Stack(
+          children: [
+            // Vertical line
+            if (_letterParts != null && _letterParts.contains('vertical_line'))
+              Positioned(
+                left: 40,
+                top: 20,
+                child: Container(
+                  width: 8,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.brown,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            // Circle on the right
+            if (_letterParts != null && _letterParts.contains('circle'))
+              Positioned(
+                left: 48,
+                top: 40,
+                child: Container(
+                  width: 50,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                ),
+              ),
+          ],
+        );
+      case 'b':
+        return Stack(
+          children: [
+            // Vertical line
+            if (_letterParts != null && _letterParts.contains('vertical_line'))
+              Positioned(
+                left: 40,
+                top: 20,
+                child: Container(
+                  width: 8,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.brown,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            // Circle on the right
+            if (_letterParts != null && _letterParts.contains('circle'))
+              Positioned(
+                left: 48,
+                top: 20,
+                child: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                ),
+              ),
+            if (_letterParts != null && _letterParts.contains('circle'))
+              Positioned(
+                left: 48,
+                top: 80,
+                child: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                ),
+              ),
+          ],
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  String _getLetterInstructions() {
+    switch (_currentBuildLetter) {
+      case 'p':
+        return 'Build letter P: Start with the straight line, then add the round part at the top';
+      case 'l':
+        return 'Build letter L: Start with the tall line, then add the short line at the bottom';
+      case 'd':
+        return 'Build letter D: Start with the straight line, then add the round part';
+      case 'b':
+        return 'Build letter B: Start with the straight line, then add the round parts';
+      default:
+        return 'Build the letter!';
+    }
+  }
+
+  List<Widget> _buildLetterPartButtons() {
+    List<Widget> buttons = [];
+    
+    // Always add vertical line
+    buttons.add(
+      GestureDetector(
+        onTap: () => _buildLetter('vertical_line'),
+        child: Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            color: (_letterParts != null && _letterParts.contains('vertical_line')) ? Colors.green : Colors.brown,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Center(
+            child: Text('|', style: TextStyle(fontSize: 40, color: Colors.white)),
+          ),
+        ),
+      ),
+    );
+    
+    // Add specific parts based on letter
+    switch (_currentBuildLetter) {
+      case 'p':
+        buttons.add(
+          GestureDetector(
+            onTap: () => _buildLetter('semi_circle'),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: (_letterParts != null && _letterParts.contains('semi_circle')) ? Colors.green : Colors.orange,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(40),
+                  topRight: Radius.circular(40),
+                ),
+              ),
+              child: const Center(
+                child: Text('D', style: TextStyle(fontSize: 40, color: Colors.white)),
+              ),
+            ),
+          ),
+        );
+        break;
+      case 'l':
+        buttons.add(
+          GestureDetector(
+            onTap: () => _buildLetter('horizontal_line'),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: (_letterParts != null && _letterParts.contains('horizontal_line')) ? Colors.green : Colors.brown,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Center(
+                child: Text('¯', style: TextStyle(fontSize: 40, color: Colors.white)),
+              ),
+            ),
+          ),
+        );
+        break;
+      case 'd':
+      case 'b':
+        buttons.add(
+          GestureDetector(
+            onTap: () => _buildLetter('circle'),
+            child: Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: (_letterParts != null && _letterParts.contains('circle')) ? Colors.green : Colors.orange,
+                shape: BoxShape.circle,
+              ),
+              child: const Center(
+                child: Text('O', style: TextStyle(fontSize: 40, color: Colors.white)),
+              ),
+            ),
+          ),
+        );
+        break;
+    }
+    
+    return buttons;
   }
 
   // NEW: Image-to-Word Snap Activity
@@ -710,8 +1072,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     );
   }
 
-  // NEW: Infinite Canvas Storyteller Activity
-  Widget _buildStoryteller() {
+  // NEW: Tracing Practice Activity
+  Widget _buildTracingPractice() {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -719,86 +1081,160 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             const Text(
-              "🎨 Storyteller's Canvas 🎨",
+              "✏️ Tracing Practice ✏️",
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
             ),
             const SizedBox(height: 12),
-            const Text(
-              "Create a scene and tell your story!",
-              style: TextStyle(fontSize: 16, color: Colors.black54),
+            Text(
+              "Trace the letter $_currentPracticeLetter! Follow the dotted lines.",
+              style: const TextStyle(fontSize: 16, color: Colors.black54),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
             
-            // Canvas area
+            // Tracing canvas
             Container(
-              height: 300,
+              width: 200,
+              height: 200,
               decoration: BoxDecoration(
-                color: Colors.lightGreen.withOpacity(0.1),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.green, width: 2),
+                border: Border.all(color: Colors.blue, width: 2),
               ),
-              child: Wrap(
-                children: (_placedStickers.isNotEmpty ? _placedStickers : []).map((sticker) => 
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(sticker, style: const TextStyle(fontSize: 40)),
-                  ),
-                ).toList(),
+              child: Builder(
+                builder: (context) {
+                  return GestureDetector(
+                    onPanStart: (_) => _startTracing(),
+                    onPanUpdate: (details) {
+                      final RenderBox renderBox = context.findRenderObject() as RenderBox;
+                      final localPosition = renderBox.globalToLocal(details.globalPosition);
+                      _addTracingPoint(localPosition);
+                    },
+                    onPanEnd: (_) {
+                      if (_isTracing && _tracedPoints.isNotEmpty && !_hasSpokenFeedback) {
+                        _calculateTracingAccuracy();
+                        _hasSpokenFeedback = true;
+                        _tts.speak('Your accuracy is ${(_tracingAccuracy * 100).round()}%. ${_tracingAccuracy > 0.6 ? "Great job!" : "Try again for better accuracy!"}');
+                      }
+                    },
+                    child: CustomPaint(
+                      painter: TracingPainter(
+                        targetLetter: _currentPracticeLetter,
+                        tracedPoints: _tracedPoints,
+                        letterPaths: _letterPaths,
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
             
             const SizedBox(height: 20),
             
-            // Sticker choices
-            const Text(
-              "Tap stickers to add to your scene!",
-              style: TextStyle(fontSize: 14, color: Colors.black54),
+            // Instructions
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    "How to trace:",
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    "1. Touch and drag to trace\n2. Follow the dotted path\n3. Stay as close as possible",
+                    style: TextStyle(fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 12,
-              children: (_stickers.isNotEmpty ? _stickers : ['dog', 'ball', 'tree']).map((sticker) => 
-                GestureDetector(
-                  onTap: () => _addSticker(sticker),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey),
-                    ),
-                    child: Text(sticker, style: const TextStyle(fontSize: 32)),
+            
+            const SizedBox(height: 20),
+            
+            // Accuracy indicator
+            if (_isTracing || _tracingAccuracy > 0)
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _tracingAccuracy > 0.6 
+                      ? Colors.green.withOpacity(0.2)
+                      : Colors.red.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: _tracingAccuracy > 0.6 ? Colors.green : Colors.red,
+                    width: 2,
                   ),
                 ),
-              ).toList(),
-            ),
-            
-            const SizedBox(height: 20),
-            
-            // Microphone recording
-            ElevatedButton.icon(
-              onPressed: _isRecording ? null : _startRecording,
-              icon: Icon(_isRecording ? Icons.fiber_manual_record : Icons.mic),
-              label: Text(_isRecording ? "Recording..." : "Record Your Story"),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _isRecording ? Colors.red : Colors.purple,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                child: Column(
+                  children: [
+                    Text(
+                      "Accuracy: ${(_tracingAccuracy * 100).round()}%",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: _tracingAccuracy > 0.6 ? Colors.green : Colors.red,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _tracingAccuracy > 0.6 ? "Great tracing!" : "Try again for better accuracy",
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: _tracingAccuracy > 0.6 ? Colors.green : Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
             
-            if (_storytellerComplete)
+            if (_tracingComplete)
               Container(
                 margin: const EdgeInsets.only(top: 20),
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.green.withOpacity(0.2),
+                  color: Colors.green.withOpacity(0.3),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green, width: 3),
                 ),
-                child: const Text(
-                  "🎉 What a wonderful story! 🎉",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                          size: 30,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          "Excellent Tracing!",
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "You traced $_currentPracticeLetter with ${(_tracingAccuracy * 100).round()}% accuracy",
+                      style: const TextStyle(fontSize: 16, color: Colors.green),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _nextPracticeLetter,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text("Next Letter"),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      ),
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -958,7 +1394,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Select number for ${rowIndex + 1}'),
+        title: Text('Choose the number'),
         content: Wrap(
           spacing: 16,
           runSpacing: 16,
@@ -2530,7 +2966,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       case 2:
         return _buildImageToWordSnap();
       case 3:
-        return _buildStoryteller();
+        return _buildTracingPractice();
       case 4:
         return _buildNumberTable();
       case 5:
@@ -2566,7 +3002,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         canProgress = _imageSnapComplete;
         break;
       case 3:
-        canProgress = _storytellerComplete;
+        canProgress = _tracingComplete;
         break;
       case 4:
         canProgress = _numberTableComplete;
@@ -2636,7 +3072,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         title: Column(
           children: const [
             Text("6 Years Assessment", style: TextStyle(color: Color(0xFF1A2B47), fontSize: 18, fontWeight: FontWeight.bold)),
-            Text("Dysgraphia-Friendly Activities", style: TextStyle(color: Colors.purple, fontSize: 12)),
+            //Text("Dysgraphia-Friendly Activities", style: TextStyle(color: Colors.purple, fontSize: 12)),
           ],
         ),
         centerTitle: true,
@@ -2691,4 +3127,88 @@ class TrianglePainter extends CustomPainter {
   
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Custom painter for tracing practice
+class TracingPainter extends CustomPainter {
+  final String targetLetter;
+  final List<Offset> tracedPoints;
+  final Map<String, List<Offset>> letterPaths;
+  
+  TracingPainter({
+    required this.targetLetter,
+    required this.tracedPoints,
+    required this.letterPaths,
+  });
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final targetPath = letterPaths[targetLetter] ?? [];
+    
+    // Draw dotted guide lines
+    final dottedPaint = Paint()
+      ..color = Colors.grey.withOpacity(0.5)
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    
+    for (int i = 0; i < targetPath.length - 1; i++) {
+      final start = targetPath[i];
+      final end = targetPath[i + 1];
+      _drawDottedLine(canvas, start, end, dottedPaint);
+    }
+    
+    // Draw traced path
+    if (tracedPoints.isNotEmpty) {
+      final tracePaint = Paint()
+        ..color = Colors.blue
+        ..strokeWidth = 4
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      
+      // Draw continuous path
+      final path = Path();
+      path.moveTo(tracedPoints.first.dx, tracedPoints.first.dy);
+      
+      for (int i = 1; i < tracedPoints.length; i++) {
+        path.lineTo(tracedPoints[i].dx, tracedPoints[i].dy);
+      }
+      
+      canvas.drawPath(path, tracePaint);
+    }
+    
+    // Draw dots at key points
+    final dotPaint = Paint()
+      ..color = Colors.red
+      ..style = PaintingStyle.fill;
+    
+    for (final point in targetPath) {
+      canvas.drawCircle(point, 3, dotPaint);
+    }
+  }
+  
+  void _drawDottedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    const double dashWidth = 5.0;
+    const double dashSpace = 5.0;
+    
+    final distance = (end - start).distance;
+    final direction = (end - start) / distance;
+    
+    double currentDistance = 0.0;
+    while (currentDistance < distance) {
+      final startDash = start + direction * currentDistance;
+      final endDash = start + direction * (currentDistance + dashWidth);
+      
+      canvas.drawLine(
+        startDash,
+        endDash.distance < distance ? endDash : end,
+        paint,
+      );
+      
+      currentDistance += dashWidth + dashSpace;
+    }
+  }
+  
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

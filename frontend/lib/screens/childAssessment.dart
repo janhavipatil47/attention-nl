@@ -1,10 +1,8 @@
-import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'report.dart';
 
 const Duration _shakeDuration = Duration(milliseconds: 600);
 
@@ -30,6 +28,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
 
   int? _writingWizardLetter;
   double _writingWizardProgress = 0.0;
+  int _tracingPathPoints = 0;
   Set<int> _busyShapesPlaced = <int>{};
   bool _drawingStarted = false;
 
@@ -39,6 +38,16 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   int? _sequenceChoice;
 
   final Set<int> _dinoFedItems = <int>{};
+  
+  // New games variables
+  String? _selectedColorForFish;
+  Set<String> _gardenColored = <String>{};
+  int? _missingLetterChoice;
+  double? _arrowTracingProgress;
+  bool _circleCreationStarted = false;
+  double _circleCompletionPercent = 0.0;
+  Set<int> _numberDragDropPlaced = <int>{};
+  Set<int> _patternDragPlaced = <int>{};
 
   @override
   void initState() {
@@ -61,12 +70,6 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     final String rawAge = prefs.getString('childAge') ?? '';
     final RegExpMatch? ageMatch = RegExp(r'\d+').firstMatch(rawAge);
     final int parsedAge = storedAgeValue ?? int.tryParse(ageMatch?.group(0) ?? '') ?? 3;
-
-    // Debug logging
-    print('ChildAssessment DEBUG: storedAgeValue = $storedAgeValue');
-    print('ChildAssessment DEBUG: rawAge = $rawAge');
-    print('ChildAssessment DEBUG: ageMatch = ${ageMatch?.group(0)}');
-    print('ChildAssessment DEBUG: parsedAge = $parsedAge');
 
     if (!mounted) {
       return;
@@ -94,7 +97,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       _picturePairChoice != null,
       _writingWizardProgress > 0,
       _busyShapesPlaced.isNotEmpty,
-      _drawingStarted,
+      _gardenColored.isNotEmpty,
+      _missingLetterChoice != null,
+      _arrowTracingProgress != null,
+      _circleCompletionPercent > 0,
       _dinoFedItems.isNotEmpty,
       _countTapped.isNotEmpty,
       _dotsChoice != null,
@@ -107,19 +113,6 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   Future<void> _speak(String text) async {
     await _tts.stop();
     await _tts.speak(text);
-  }
-
-  void _submitAssessment() {
-    if (_attemptedCount == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please attempt at least one activity before submitting.')),
-      );
-      return;
-    }
-
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute<void>(builder: (_) => const ReportScreen()),
-    );
   }
 
   Widget _buildShakingDino() {
@@ -214,15 +207,16 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
           const SizedBox(height: 12),
           _sectionCard(
             title: 'Writing & Motor Skills 🎮',
-            subtitle: _isAge45
-                ? 'Dysgraphia Games - Building handwriting confidence.'
-                : 'Age 3: Simple drawing and motor activities.',
+            subtitle: _isAge45 ? 'Dysgraphia Games - Building handwriting confidence.' : 'Age 3: Simple drawing and motor activities.',
             color: const Color(0xFFFFF3E6),
             children: _isAge45
                 ? [
                     _writingWizardCard(),
                     _busyShapesCard(),
                     _drawingForKidsCard(),
+                    _missingLetterCard(),
+                    _arrowTracingCard(),
+                    _circleCreationCard(),
                     _dinoFeedingCard(),
                   ]
                 : [
@@ -246,19 +240,6 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
               _sequenceCard(),
             ],
           ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _submitAssessment,
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('Submit Assessment'),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
         ],
       ),
     );
@@ -269,22 +250,70 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
         _isAge45 ? <String>['Moon', 'Sun', 'Fish'] : <String>['Ball', 'Sun', 'Cat'];
     final List<String> emojis =
         _isAge45 ? <String>['🌙', '☀️', '🐟'] : <String>['⚽', '☀️', '🐱'];
+    final String soundToSpeak = _isAge45 ? 'Moon' : 'Ball';
 
     return _activityCard(
       title: '1) Sound Match',
-      instruction: 'Tap speaker, then choose the right picture.',
-      onSpeak: () => _speak('mmm'),
-      child: Wrap(
-        spacing: 10,
-        children: List<Widget>.generate(labels.length, (index) {
-          return _emojiChoice(
-            index,
-            _soundMatchChoice,
-            emojis[index],
-            labels[index],
-            (i) => setState(() => _soundMatchChoice = i),
-          );
-        }),
+      instruction: 'Tap speaker to hear the sound, then choose the right picture.',
+      onSpeak: () => _speak(soundToSpeak),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE3F2FD),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFF2196F3), width: 1),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.info_outline, color: Color(0xFF1976D2), size: 18),
+                SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    'Listen carefully to the sound, then tap the matching picture below!',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF1565C0)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            children: List<Widget>.generate(labels.length, (index) {
+              return _emojiChoice(
+                index,
+                _soundMatchChoice,
+                emojis[index],
+                labels[index],
+                (i) => setState(() => _soundMatchChoice = i),
+              );
+            }),
+          ),
+          if (_soundMatchChoice != null && _soundMatchChoice == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F7E8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.star, color: Color(0xFF2C8E4A), size: 18),
+                    SizedBox(width: 6),
+                    Text(
+                      '⭐ Perfect! You found the right sound!',
+                      style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -347,6 +376,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       ),
     );
   }
+
+  // ===== AGE 3: SIMPLE GAMES =====
 
   Widget _strokePracticeCard() {
     return _activityCard(
@@ -518,12 +549,14 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     );
   }
 
+  // ===== DYSGRAPHIA WRITING GAMES =====
+
   Widget _writingWizardCard() {
     final List<String> letters = _isAge45 ? <String>['A', 'B', 'C'] : <String>['A', 'B', 'C'];
-
+    
     return _activityCard(
       title: '1) Writing Wizard - Learn Letters ✏️',
-      instruction: 'Choose a letter, then drag slowly along the dotted line from START to END.',
+      instruction: 'Choose a letter, then SLOWLY drag your finger along the dotted line from START to END.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -534,7 +567,13 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
             children: List<Widget>.generate(letters.length, (index) {
               final bool isSelected = _writingWizardLetter == index;
               return GestureDetector(
-                onTap: () => setState(() => _writingWizardLetter = index),
+                onTap: () {
+                  setState(() {
+                    _writingWizardLetter = index;
+                    _writingWizardProgress = 0.0;
+                    _tracingPathPoints = 0;
+                  });
+                },
                 child: Container(
                   width: 52,
                   height: 52,
@@ -559,19 +598,28 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
           if (_writingWizardLetter != null) ...[
             const SizedBox(height: 12),
             const Text(
-              'Trace the letter along the arrows: START ➡️ END',
+              'Drag slowly from START to END along the dotted line:',
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF8B6914)),
             ),
             const SizedBox(height: 8),
             GestureDetector(
               onPanUpdate: (details) {
                 setState(() {
-                  _writingWizardProgress = (_writingWizardProgress + 0.02).clamp(0.0, 1.0);
+                  // Only allow progress if actively tracing
+                  if (details.delta.dx.abs() > 1 || details.delta.dy.abs() > 1) {
+                    _tracingPathPoints++;
+                    // Slow tracing - need at least 15 points to complete
+                    _writingWizardProgress = (_tracingPathPoints / 15).clamp(0.0, 1.0);
+                  }
                 });
               },
               onPanEnd: (_) {
-                if (_writingWizardProgress < 0.8) {
-                  setState(() => _writingWizardProgress = 0.0);
+                // Don't reset if progress is high enough
+                if (_writingWizardProgress < 0.85) {
+                  setState(() {
+                    _writingWizardProgress = 0.0;
+                    _tracingPathPoints = 0;
+                  });
                 }
               },
               child: Container(
@@ -590,11 +638,11 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                           const Text('START ➡️', style: TextStyle(fontSize: 10, color: Color(0xFF2C8E4A), fontWeight: FontWeight.bold)),
                           const SizedBox(height: 12),
                           Text(
-                            letters[_writingWizardLetter!],
+                            _writingWizardLetter != null ? _letters[_writingWizardLetter!] : 'A',
                             style: TextStyle(
                               fontSize: 50,
                               fontWeight: FontWeight.bold,
-                              color: Colors.grey.withValues(alpha: 0.2),
+                              color: Colors.grey.withValues(alpha: 0.15),
                             ),
                           ),
                           const SizedBox(height: 12),
@@ -602,18 +650,30 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                         ],
                       ),
                     ),
+                    // Show progress line
                     if (_writingWizardProgress > 0)
                       Positioned(
-                        left: _writingWizardProgress * 200,
-                        top: 20,
+                        left: 0,
+                        top: 60,
                         child: Container(
-                          width: 20,
                           height: 20,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF7DA1FF),
-                            shape: BoxShape.circle,
+                          width: _writingWizardProgress * 280,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [const Color(0xFF7DA1FF), Color(0xFF7DA1FF).withValues(alpha: 0.5)],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.edit, size: 12, color: Colors.white),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              if (_writingWizardProgress > 0.1)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 4),
+                                  child: Icon(Icons.edit, size: 14, color: Colors.white),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                   ],
@@ -641,22 +701,39 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
               ),
             ),
             const SizedBox(height: 8),
-            if (_writingWizardProgress >= 0.8)
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F7E8),
-                  borderRadius: BorderRadius.circular(8),
+            Text(
+              'Progress: ${(_writingWizardProgress * 100).toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w600),
+            ),
+            if (_writingWizardProgress >= 0.85)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F7E8),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.star, color: Color(0xFF2C8E4A), size: 18),
+                      SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          '⭐ Excellent tracing! Letter mastered!',
+                          style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.star, color: Color(0xFF2C8E4A), size: 18),
-                    SizedBox(width: 6),
-                    Text(
-                      '⭐ Great tracing! Letter complete.',
-                      style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 12),
-                    ),
-                  ],
+              )
+            else if (_writingWizardProgress > 0)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'Keep dragging slowly along the line...',
+                  style: TextStyle(fontSize: 11, color: Colors.orange.shade700, fontWeight: FontWeight.w600),
                 ),
               ),
           ],
@@ -664,6 +741,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       ),
     );
   }
+
+  final List<String> _letters = <String>['A', 'B', 'C'];
 
   Widget _busyShapesCard() {
     return _activityCard(
@@ -825,91 +904,58 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
 
   Widget _drawingForKidsCard() {
     return _activityCard(
-      title: '3) Drawing for Kids - Creative Art 🎨',
-      instruction: 'Color the fish! Pick a color below, then tap the fish.',
+      title: '3) Garden Coloring - Creative Art 🎨',
+      instruction: 'Pick a color, then tap gardens items to color them!',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Pick a color:',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-          ),
+          const Text('Pick a color:', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
             children: [
               _colorButton('Red', Color(0xFFEF5350)),
               _colorButton('Green', Color(0xFF66BB6A)),
-              _colorButton('Yellow', Color(0xFFFFEA00)),
-              _colorButton('Purple', Color(0xFFAB47BC)),
               _colorButton('Blue', Color(0xFF42A5F5)),
-              _colorButton('Orange', Color(0xFFFFA726)),
+              _colorButton('Yellow', Color(0xFFFFEA00)),
             ],
-          ),
-          const SizedBox(height: 16),
-          const Text(
-            'Now tap the fish to color it:',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
           Container(
-            height: 180,
+            height: 120,
             decoration: BoxDecoration(
-              color: const Color(0xFFEBF5FB),
+              color: Color(0xFFEBF5FB),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFF42A5F5), width: 2),
+              border: Border.all(color: Color(0xFF42A5F5), width: 2),
             ),
             child: Center(
-              child: GestureDetector(
-                onTap: () => setState(() => _drawingStarted = true),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '🐟',
-                      style: TextStyle(
-                        fontSize: 100,
-                        color: _drawingStarted ? const Color(0xFFEF5350) : const Color(0xFFCCCCCC),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _drawingStarted ? '✏️ Coloring the fish...' : '👆 Tap fish to color',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: _drawingStarted ? const Color(0xFF1565C0) : Colors.grey,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          if (_drawingStarted) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE8F7E8),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Row(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.favorite, color: Color(0xFF2C8E4A), size: 18),
-                  SizedBox(width: 6),
-                  Text(
-                    '❤️ Great job coloring! Building confidence!',
-                    style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 11),
-                  ),
+                  Text('🌳 🌸 🌤️', style: TextStyle(fontSize: 50)),
+                  SizedBox(height: 8),
+                  Text('Tap to color the garden', style: TextStyle(color: Colors.black54, fontSize: 12)),
+                  if (_gardenColored.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        padding: EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Color(0xFFE8F7E8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text('✓ Coloring!', style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 11)),
+                      ),
+                    ),
                 ],
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
   }
+
 
   Widget _colorButton(String colorName, Color color) {
     return GestureDetector(
@@ -1171,6 +1217,322 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     );
   }
 
+  Widget _missingLetterCard() {
+    final String sequence = 'A  B  ?  D';
+    final List<String> options = <String>['C', 'E', 'F'];
+    
+    return _activityCard(
+      title: '4) Missing Letter 🔤',
+      instruction: 'Tap the correct letter in the sequence',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Color(0xFFEDE7F6),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Color(0xFF7E57C2), width: 2),
+            ),
+            child: Center(
+              child: Text(
+                sequence,
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 4),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            children: List<Widget>.generate(options.length, (index) {
+              final bool isSelected = _missingLetterChoice == index;
+              return GestureDetector(
+                onTap: () => setState(() => _missingLetterChoice = index),
+                child: Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: isSelected ? Color(0xFFDDE8FF) : Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected ? Color(0xFF4A7BFF) : Color(0xFFE3E3E3),
+                      width: 2,
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(options[index], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              );
+            }),
+          ),
+          if (_missingLetterChoice == 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Color(0xFFE8F7E8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: const [
+                    Icon(Icons.star, color: Color(0xFF2C8E4A), size: 18),
+                    SizedBox(width: 6),
+                    Text(
+                      '⭐ Correct! C is the answer!',
+                      style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _arrowTracingCard() {
+    return _activityCard(
+      title: '5) Arrow Direction Tracing ➡️',
+      instruction: 'Drag the ball from LEFT to RIGHT following the arrows!',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            height: 100,
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF9F0),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFFFA500), width: 2),
+            ),
+            child: Stack(
+              children: [
+                // Draw track with arrows
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: ArrowTrackPainter(),
+                  ),
+                ),
+                // Draggable ball
+                Positioned(
+                  left: (_arrowTracingProgress ?? 0) * 200,
+                  top: 35,
+                  child: Draggable<int>(
+                    data: 1,
+                    feedback: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF42A5F5),
+                        shape: BoxShape.circle,
+                        boxShadow: [BoxShadow(blurRadius: 10, color: Color(0xFF42A5F5))],
+                      ),
+                      child: const Center(child: Text('⚽', style: TextStyle(fontSize: 18))),
+                    ),
+                    child: Container(
+                      width: 30,
+                      height: 30,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF42A5F5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(child: Text('⚽', style: TextStyle(fontSize: 18))),
+                    ),
+                  ),
+                ),
+                // Target zone
+                DragTarget<int>(
+                  onAcceptWithDetails: (details) {
+                    setState(() => _arrowTracingProgress = 1.0);
+                  },
+                  builder: (context, candidateData, rejectedData) {
+                    return Positioned(
+                      right: 10,
+                      top: 30,
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: candidateData.isNotEmpty ? const Color(0xFFE8F7E8) : Colors.white.withValues(alpha: 0.5),
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: candidateData.isNotEmpty ? const Color(0xFF2C8E4A) : const Color(0xFFFFA500),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Center(
+                          child: Text('🏁', style: TextStyle(fontSize: 20)),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _arrowTracingProgress == 1.0 ? '✓ Ball reached the finish line!' : 'Drag the ball to the right →',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _arrowTracingProgress == 1.0 ? const Color(0xFF2C8E4A) : Colors.black54,
+            ),
+          ),
+          if (_arrowTracingProgress == 1.0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F7E8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.favorite, color: Color(0xFF2C8E4A), size: 18),
+                    SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '❤️ Great directional control!',
+                        style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _circleCreationCard() {
+    return _activityCard(
+      title: '6) Circle Creation 🎨',
+      instruction: 'Tap and drag to create a circle in the canvas!',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          GestureDetector(
+            onPanStart: (_) {
+              setState(() => _circleCreationStarted = true);
+            },
+            onPanUpdate: (details) {
+              setState(() {
+                _circleCompletionPercent = (_circleCompletionPercent + 0.03).clamp(0.0, 1.0);
+              });
+            },
+            onPanEnd: (_) {
+              if (_circleCompletionPercent < 0.6) {
+                setState(() => _circleCompletionPercent = 0.0);
+              }
+            },
+            child: Container(
+              height: 160,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3E5F5),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF9C27B0), width: 2),
+              ),
+              child: Stack(
+                children: [
+                  Center(
+                    child: _circleCompletionPercent > 0
+                        ? CustomPaint(
+                            painter: CirclePainter(_circleCompletionPercent),
+                            size: Size(120, 120),
+                          )
+                        : Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Text('🎨', style: TextStyle(fontSize: 40)),
+                              SizedBox(height: 8),
+                              Text('Draw a circle', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (_circleCreationStarted)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Circle Progress: ${(_circleCompletionPercent * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                    if (_circleCompletionPercent >= 0.6)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE8F7E8),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: const Text(
+                          '✓ Perfect!',
+                          style: TextStyle(fontSize: 11, color: Color(0xFF2C8E4A), fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3E3E3),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: FractionallySizedBox(
+                      widthFactor: _circleCompletionPercent,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9C27B0),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (_circleCompletionPercent >= 0.6)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE8F7E8),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.star, color: Color(0xFF2C8E4A), size: 18),
+                    SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        '⭐ Excellent circle! Great motor skills!',
+                        style: TextStyle(color: Color(0xFF2C8E4A), fontWeight: FontWeight.w600, fontSize: 11),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _sectionCard({
     required String title,
     required String subtitle,
@@ -1348,7 +1710,6 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     );
   }
 }
-
 class CurvePatternPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -1357,6 +1718,7 @@ class CurvePatternPainter extends CustomPainter {
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
 
+    // Draw simple wave curve
     final Path path = Path();
     path.moveTo(10, size.height / 2);
     path.quadraticBezierTo(
@@ -1367,11 +1729,13 @@ class CurvePatternPainter extends CustomPainter {
     );
     canvas.drawPath(path, paint);
 
+    // Draw second dashed curve
     final Paint dashedPaint = Paint()
-      ..color = const Color(0xFF2C8E4A).withValues(alpha: 0.3)
+      ..color = Color(0xFF2C8E4A).withValues(alpha: 0.3)
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round;
 
+    // Simple dots instead of dashed line
     for (double x = 10; x < size.width - 10; x += 6) {
       canvas.drawCircle(Offset(x, size.height / 2 + 15), 1.5, dashedPaint);
     }
@@ -1380,3 +1744,94 @@ class CurvePatternPainter extends CustomPainter {
   @override
   bool shouldRepaint(CurvePatternPainter oldDelegate) => false;
 }
+
+class ArrowTrackPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = Color(0xFFFFA500)
+      ..strokeWidth = 2;
+
+    final Paint arrowPaint = Paint()
+      ..color = Color(0xFFFFA500)
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+
+    // Draw track line
+    canvas.drawLine(
+      Offset(10, size.height / 2),
+      Offset(size.width - 10, size.height / 2),
+      paint,
+    );
+
+    // Draw arrows pointing right
+    for (double x = 40; x < size.width - 30; x += 50) {
+      // Arrow head
+      final Path arrowPath = Path();
+      arrowPath.moveTo(x, size.height / 2);
+      arrowPath.lineTo(x - 6, size.height / 2 - 4);
+      arrowPath.moveTo(x, size.height / 2);
+      arrowPath.lineTo(x - 6, size.height / 2 + 4);
+
+      canvas.drawPath(arrowPath, arrowPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(ArrowTrackPainter oldDelegate) => false;
+}
+
+class CirclePainter extends CustomPainter {
+  final double progress;
+
+  CirclePainter(this.progress);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Paint paint = Paint()
+      ..color = Color(0xFF9C27B0)
+      ..strokeWidth = 3
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final Paint fillPaint = Paint()
+      ..color = Color(0xFF9C27B0).withValues(alpha: 0.15)
+      ..style = PaintingStyle.fill;
+
+    final Offset center = Offset(size.width / 2, size.height / 2);
+    final double radius = size.width / 2 - 10;
+
+    // Draw filled circle background
+    canvas.drawCircle(center, radius, fillPaint);
+
+    // Draw animated circle outline
+    final Path path = Path();
+    const double startAngle = -math.pi / 2;
+    final double sweepAngle = 2 * math.pi * progress;
+
+    path.addArc(
+      Rect.fromCircle(center: center, radius: radius),
+      startAngle,
+      sweepAngle,
+    );
+
+    canvas.drawPath(path, paint);
+
+    // Draw progress indicator dot
+    if (progress > 0) {
+      final double angle = startAngle + sweepAngle;
+      final double dotX = center.dx + radius * math.cos(angle);
+      final double dotY = center.dy + radius * math.sin(angle);
+
+      final Paint dotPaint = Paint()
+        ..color = Color(0xFF9C27B0)
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(Offset(dotX, dotY), 4, dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(CirclePainter oldDelegate) => oldDelegate.progress != progress;
+}
+
