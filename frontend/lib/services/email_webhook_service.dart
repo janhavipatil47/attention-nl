@@ -21,11 +21,14 @@ class EmailWebhookService {
   static const String _relayWebhookKey = 'relayWebhookUrl';
   static const String _defaultWebhookUrl =
       'https://script.google.com/macros/s/AKfycby9_Ywff18rHNDk4FfaV5Ew6WFRYiDN-uzM-cVfpphIbnvhd8yRXaaRoSqyNtdKQF8Wfg/exec';
-  static const String _defaultRelayWebhookUrl = '';
-  static const String _webhookFromEnv =
-      String.fromEnvironment('APPS_SCRIPT_WEBHOOK_URL');
-  static const String _relayFromEnv =
-      String.fromEnvironment('CLOUDFLARE_RELAY_URL');
+  static const String _defaultRelayWebhookUrl =
+      'https://long-wave-5c16.2023-vaishnavi-kumbhar.workers.dev/';
+  static const String _webhookFromEnv = String.fromEnvironment(
+    'APPS_SCRIPT_WEBHOOK_URL',
+  );
+  static const String _relayFromEnv = String.fromEnvironment(
+    'CLOUDFLARE_RELAY_URL',
+  );
 
   static Future<void> setWebhookUrl(String url) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -44,7 +47,8 @@ class EmailWebhookService {
       if (_relayFromEnv.trim().isNotEmpty) {
         return _relayFromEnv.trim();
       }
-      final String savedRelay = (prefs.getString(_relayWebhookKey) ?? '').trim();
+      final String savedRelay = (prefs.getString(_relayWebhookKey) ?? '')
+          .trim();
       if (savedRelay.isNotEmpty) {
         return savedRelay;
       }
@@ -95,8 +99,11 @@ class EmailWebhookService {
               return EmailWebhookResult(
                 success: false,
                 statusCode: response.statusCode,
-                message: (parsed['error'] ?? parsed['message'] ?? 'Webhook reported failure')
-                    .toString(),
+                message:
+                    (parsed['error'] ??
+                            parsed['message'] ??
+                            'Webhook reported failure')
+                        .toString(),
               );
             }
           }
