@@ -301,7 +301,7 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                       print('DEBUG: Routing to ChildAssessmentScreen');
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const SixYearAssessmentScreen()),
+                        MaterialPageRoute(builder: (context) => const ChildAssessmentScreen()),
                       );
                     }
                   } catch (error) {
