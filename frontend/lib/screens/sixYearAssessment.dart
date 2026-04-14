@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:math' as math;
 import '../services/assessment_report_service.dart';
 import 'report.dart';
@@ -132,6 +133,15 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   final Set<String> _readWords = {};
   bool _readingRainbowComplete = false;
 
+  // Speech Recognition for Reading Rainbow
+  late SpeechToText _speechToText;
+  bool _speechEnabled = false;
+  bool _isListening = false;
+  String? _currentSpokenWord;
+  String? _selectedWordForSpeech;
+  final Map<String, String> _speechResults = {}; // word -> spoken result
+  final Map<String, double> _speechConfidence = {}; // word -> confidence score
+
   // NEW: Visual-to-Symbol Table state
   final List<Map<String, dynamic>> _numberTable = [
     {'picture': 1, 'digits': '1', 'words': 'One', 'completed': true},
@@ -184,6 +194,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     super.initState();
     
     _tts = FlutterTts();
+    _speechToText = SpeechToText();
     
     _shakeController = AnimationController(
       duration: const Duration(milliseconds: 600), 
@@ -198,14 +209,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       vsync: this
     );
     _bubbleController = AnimationController(
-      duration: const Duration(seconds: 2), 
+      duration: const Duration(milliseconds: 1200), 
       vsync: this
     );
     
-    // Initialize all arrays to prevent null errors
-    _currentBubbles = ['band', 'sand', 'blue', 'jump'];
-    _jumbledLetters = ['a', 'd', 'k', 'w'];
-    _placedLetters = List.filled(4, '');
     _correctPlacements = List.filled(4, false);
     // For final Sets, clear them instead of reassigning
     _matchedPairs.clear();
@@ -221,6 +228,212 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   void _setupTts() async {
     await _tts.setSpeechRate(0.5);
     await _tts.setVolume(1.0);
+  }
+
+  void _initializeSpeechRecognition() async {
+    try {
+      // Check if speech recognition is available
+      bool available = await _speechToText.initialize(
+        onError: (error) => print('Speech recognition error: $error'),
+        onStatus: (status) {
+          print('Speech recognition status: $status');
+          if (status == 'done' && mounted) {
+            setState(() {
+              _isListening = false;
+            });
+          }
+        },
+        debugLogging: true,
+      );
+      
+      setState(() {
+        _speechEnabled = available;
+      });
+      
+      if (available) {
+        print('Speech recognition initialized successfully');
+      } else {
+        print('Speech recognition not available - trying to enable...');
+        // Try to enable speech recognition
+        available = await _speechToText.initialize(
+          onError: (error) => print('Retry error: $error'),
+          onStatus: (status) => print('Retry status: $status'),
+          debugLogging: true,
+        );
+        setState(() {
+          _speechEnabled = available;
+        });
+      }
+    } catch (e) {
+      print('Failed to initialize speech recognition: $e');
+      setState(() {
+        _speechEnabled = false;
+      });
+    }
+  }
+
+  void _startListening(String word) async {
+    if (!_speechEnabled) {
+      // Try to initialize speech recognition again
+      _initializeSpeechRecognition();
+      if (!_speechEnabled) {
+        _tts.speak('Please allow microphone access and use Chrome browser');
+        return;
+      }
+    }
+
+    setState(() {
+      _isListening = true;
+      _selectedWordForSpeech = word;
+      _currentSpokenWord = null;
+    });
+
+    try {
+      await _speechToText.listen(
+        onResult: (result) {
+          if (!mounted) return;
+          
+          setState(() {
+            _currentSpokenWord = result.recognizedWords.toLowerCase();
+            print('Speech result: "$_currentSpokenWord", confidence: ${result.confidence}');
+            print('Target word: "$word"');
+            
+            if (result.finalResult && _currentSpokenWord != null) {
+              _speechResults[word] = _currentSpokenWord!;
+              _speechConfidence[word] = result.confidence;
+              
+              // Special handling for short words like "free"
+              bool isCorrect = _analyzeSpeechResult(word, _currentSpokenWord!, result.confidence);
+              print('Analysis result: $isCorrect');
+            }
+          });
+        },
+        listenFor: const Duration(seconds: 8),
+        pauseFor: const Duration(seconds: 3),
+        partialResults: true,
+        cancelOnError: false,
+      );
+    } catch (e) {
+      print('Error during speech recognition: $e');
+      setState(() {
+        _isListening = false;
+      });
+      _tts.speak('Microphone access denied. Please allow microphone and try again.');
+    }
+  }
+
+  void _showSpeechNotAvailableDialog(String word) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Speech Recognition Not Available"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Speech recognition is not available in your browser. This feature requires:"),
+            const SizedBox(height: 8),
+            const Text("· Chrome browser (recommended)\n· HTTPS connection\n· Microphone permission"),
+            const SizedBox(height: 12),
+            Text("Would you like to mark '$word' as practiced manually?"),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _markWordAsPracticed(word);
+            },
+            child: const Text("Mark as Practiced"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _markWordAsPracticed(String word) {
+    setState(() {
+      _readWords.add(word);
+      _speechResults[word] = "Manual practice";
+      _speechConfidence[word] = 0.5; // Neutral confidence for manual practice
+      if (_readWords.length == _readingWords.length) {
+        _readingRainbowComplete = true;
+      }
+    });
+    _tts.speak('Great job practicing $word!');
+  }
+
+  bool _analyzeSpeechResult(String targetWord, String spokenWord, double confidence) {
+    bool isCorrect = spokenWord.toLowerCase() == targetWord.toLowerCase();
+    
+    // Special handling for short words and pronunciation variations
+    if (!isCorrect && targetWord == "free") {
+      // Check for common pronunciation variations of "free"
+      List<String> freeVariations = ['free', 'fwee', 'frea', 'frie', 'fry'];
+      for (String variation in freeVariations) {
+        if (spokenWord.toLowerCase().contains(variation)) {
+          isCorrect = true;
+          print('Matched "free" variation: "$spokenWord" -> "$variation"');
+          break;
+        }
+      }
+    }
+    
+    // Also check if the spoken word contains the target word (for partial matches)
+    if (!isCorrect && spokenWord.toLowerCase().contains(targetWord.toLowerCase())) {
+      isCorrect = true;
+      print('Partial match: "$spokenWord" contains "$targetWord"');
+    }
+    
+    // For very short words, be more lenient with confidence
+    if (targetWord.length <= 4 && confidence >= 0.5 && !isCorrect) {
+      // Check if the sounds are similar (basic phonetic matching)
+      if (_soundsSimilar(targetWord, spokenWord)) {
+        isCorrect = true;
+        print('Phonetic match: "$targetWord" sounds like "$spokenWord"');
+      }
+    }
+    
+    if (isCorrect) {
+      _tts.speak('Great pronunciation! You said $spokenWord correctly!');
+      setState(() {
+        _readWords.add(targetWord);
+        if (_readWords.length == _readingWords.length) {
+          _readingRainbowComplete = true;
+        }
+      });
+    } else {
+      _tts.speak('Nice try! You said $spokenWord, but the word is $targetWord. Try again!');
+    }
+    
+    return isCorrect;
+  }
+
+  bool _soundsSimilar(String word1, String word2) {
+    // Basic phonetic similarity for short words
+    word1 = word1.toLowerCase();
+    word2 = word2.toLowerCase();
+    
+    // Check if they share most letters
+    if (word1.length <= 3 && word2.length <= 3) {
+      int matchingChars = 0;
+      for (int i = 0; i < math.min(word1.length, word2.length); i++) {
+        if (word1[i] == word2[i]) matchingChars++;
+      }
+      return matchingChars >= 2; // At least 2 matching characters for 3-letter words
+    }
+    
+    return false;
+  }
+
+  void _stopListening() async {
+    await _speechToText.stop();
+    setState(() {
+      _isListening = false;
+    });
   }
 
   void _initializeActivities() {
@@ -493,6 +706,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   @override
   void dispose() {
+    // Stop speech recognition and clean up
+    if (_speechEnabled) {
+      _speechToText.stop();
+      _speechToText.cancel();
+    }
+    
     _shakeController.dispose();
     _pulseController.dispose();
     _glowController.dispose();
@@ -2903,58 +3122,192 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             ),
             const SizedBox(height: 12),
             const Text(
-              "Tap words to hear them, then read them aloud!",
+              "Tap words to hear them, then read them aloud for analysis!",
               style: TextStyle(fontSize: 14, color: Colors.black54),
               textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFF2196F3), width: 1),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.mic, color: Color(0xFF1976D2), size: 18),
+                  SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      'Speech Analysis: Tap a word, then press the microphone to read it aloud!',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF1565C0)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
             
-            // Word grid
+            // Word grid with speech analysis
             Wrap(
               spacing: 12,
               runSpacing: 12,
               children: (_readingWords.isNotEmpty ? _readingWords : ['nature', 'might', 'strong']).map((word) => 
-                GestureDetector(
-                  onTap: () async {
-                    await _tts.speak(word);
-                    setState(() {
-                      _readWords.add(word);
-                      if (_readWords.length == _readingWords.length) {
-                        _readingRainbowComplete = true;
-                      }
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: _readWords.contains(word) 
-                          ? Colors.green.withOpacity(0.3)
-                          : Colors.white,
-                      border: Border.all(
-                        color: _readWords.contains(word) ? Colors.green : Colors.grey,
-                        width: 2,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: _readWords.contains(word) ? [
-                        BoxShadow(
-                          color: Colors.green.withOpacity(0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
+                Container(
+                  child: Column(
+                    children: [
+                      // Word container
+                      GestureDetector(
+                        onTap: () async {
+                          await _tts.speak(word);
+                          setState(() {
+                            _selectedWordForSpeech = word;
+                          });
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _readWords.contains(word) 
+                                ? Colors.green.withOpacity(0.3)
+                                : _selectedWordForSpeech == word
+                                    ? Colors.blue.withOpacity(0.2)
+                                    : Colors.white,
+                            border: Border.all(
+                              color: _readWords.contains(word) 
+                                  ? Colors.green 
+                                  : _selectedWordForSpeech == word
+                                      ? Colors.blue
+                                      : Colors.grey,
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: _readWords.contains(word) ? [
+                              BoxShadow(
+                                color: Colors.green.withOpacity(0.3),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ] : null,
+                          ),
+                          child: Text(
+                            word,
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: _readWords.contains(word) 
+                                  ? Colors.green.shade700 
+                                  : Colors.black,
+                            ),
+                          ),
                         ),
-                      ] : null,
-                    ),
-                    child: Text(
-                      word,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: _readWords.contains(word) ? Colors.green.shade700 : Colors.black,
                       ),
-                    ),
+                      
+                      // Speech controls and results
+                      if (_selectedWordForSpeech == word) ...[
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Microphone button
+                            GestureDetector(
+                              onTap: () => _isListening ? _stopListening() : _startListening(word),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: _isListening ? Colors.red : Colors.blue,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  _isListening ? Icons.stop : Icons.mic,
+                                  color: Colors.white,
+                                  size: 20,
+                                ),
+                              ),
+                            ),
+                            
+                            // Speech result
+                            if (_speechResults.containsKey(word)) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: _speechResults[word]!.toLowerCase() == word.toLowerCase()
+                                      ? Colors.green.withOpacity(0.2)
+                                      : Colors.orange.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _speechResults[word]!.toLowerCase() == word.toLowerCase()
+                                        ? Colors.green
+                                        : Colors.orange,
+                                  ),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'You said: ${_speechResults[word]}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: _speechResults[word]!.toLowerCase() == word.toLowerCase()
+                                            ? Colors.green.shade700
+                                            : Colors.orange.shade700,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Confidence: ${(_speechConfidence[word]! * 100).toStringAsFixed(0)}%',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ).toList(),
             ),
+            
+            // Speech status indicator
+            if (_isListening) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red, width: 1),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Listening... Speak clearly!',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -2993,56 +3346,15 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _nextActivity() {
-    // Check completion for current activity
-    bool canProgress = false;
-    switch (_currentActivity) {
-      case 0:
-        canProgress = _rhymeComplete;
-        break;
-      case 1:
-        canProgress = _letterBuilderComplete;
-        break;
-      case 2:
-        canProgress = _imageSnapComplete;
-        break;
-      case 3:
-        canProgress = _tracingComplete;
-        break;
-      case 4:
-        canProgress = _numberTableComplete;
-        break;
-      case 5:
-        canProgress = _animalCountingComplete;
-        break;
-      case 6:
-        canProgress = _dicePathComplete;
-        break;
-      case 7:
-        canProgress = _shapeDetectiveComplete;
-        break;
-      case 8:
-        canProgress = _letterSorterComplete;
-        break;
-      case 9:
-        canProgress = _audioExplorerComplete;
-        break;
-      case 10:
-        canProgress = _matchUpComplete;
-        break;
-      case 11:
-        canProgress = _readingRainbowComplete;
-        break;
-    }
-    
-    if (canProgress && _currentActivity < 11) {
+    // Allow progression regardless of completion status
+    if (_currentActivity < 11) {
       setState(() {
         _currentActivity++;
         _completedActivities++;
       });
-    } else if (_currentActivity == 11 && canProgress) {
+      _tts.speak("Moving to next activity!");
+    } else if (_currentActivity == 11) {
       _showCompletionDialog();
-    } else if (!canProgress) {
-      _tts.speak("Complete this activity first!");
     }
   }
 

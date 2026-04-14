@@ -38,6 +38,7 @@ dependencies:
   firebase_core: ^4.6.0
   shared_preferences: ^2.5.5
   flutter_tts: ^4.2.3
+  speech_to_text: ^7.0.0
   crypto: ^3.0.6
   http: ^1.5.0
 

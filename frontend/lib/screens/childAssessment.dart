@@ -85,7 +85,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     });
   }
 
-  bool get _isAge45 => _childAge >= 4 && _childAge <= 5;
+  bool get _isAge45 => _childAge >= 3 && _childAge <= 5;
 
   int get _countTarget => _isAge45 ? 5 : 3;
 
@@ -180,7 +180,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Play and Learn ($ageLabel)',
+            'Play and Learn (3 - 5 Years)',
             textAlign: TextAlign.center,
             style: const TextStyle(
               fontSize: 24,
@@ -198,7 +198,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
           _sectionCard(
             title: 'Listening Activities',
             subtitle: _isAge45
-                ? 'Age 4-5 set with upgraded challenges.'
+                ? 'Age 3-5 set with upgraded challenges.'
                 : 'Age 3 set (kept as designed).',
             color: const Color(0xFFEAF4FF),
             children: [
@@ -224,17 +224,14 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                     _dinoFeedingCard(),
                   ]
                 : [
-                    _strokePracticeCard(),
-                    _connectDotsCard(),
-                    _traceLineCard(),
-                    _curvedShapeCard(),
+                    // Writing games removed
                   ],
           ),
           const SizedBox(height: 12),
           _sectionCard(
             title: 'Math Activities',
             subtitle: _isAge45
-                ? 'Age 4-5 set with upgraded challenges.'
+                ? 'Age 3-5 set with upgraded challenges.'
                 : 'Age 3 set (kept as designed).',
             color: const Color(0xFFEAFBEF),
             children: [
@@ -625,175 +622,175 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
 
   // ===== AGE 3: SIMPLE GAMES =====
 
-  Widget _strokePracticeCard() {
-    return _activityCard(
-      title: '1) Stroke Practice 🖊️',
-      instruction: 'Tap to trace vertical and horizontal strokes.',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            height: 60,
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF9F0),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFFFA500), width: 2),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Vertical', style: TextStyle(fontSize: 10)),
-                    const SizedBox(height: 4),
-                    Container(
-                      width: 2,
-                      height: 30,
-                      color: Colors.grey.withValues(alpha: 0.5),
-                    ),
-                  ],
-                ),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Horizontal', style: TextStyle(fontSize: 10)),
-                    const SizedBox(height: 4),
-                    Container(
-                      width: 30,
-                      height: 2,
-                      color: Colors.grey.withValues(alpha: 0.5),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // Widget _strokePracticeCard() {
+  //   return _activityCard(
+  //     title: '1) Stroke Practice 🖊️',
+  //     instruction: 'Tap to trace vertical and horizontal strokes.',
+  //     child: Column(
+  //       crossAxisAlignment: CrossAxisAlignment.start,
+  //       children: [
+  //         Container(
+  //           height: 60,
+  //           decoration: BoxDecoration(
+  //             color: const Color(0xFFFFF9F0),
+  //             borderRadius: BorderRadius.circular(8),
+  //             border: Border.all(color: const Color(0xFFFFA500), width: 2),
+  //           ),
+  //           child: Row(
+  //             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+  //             children: [
+  //               Column(
+  //                 mainAxisAlignment: MainAxisAlignment.center,
+  //                 children: [
+  //                   const Text('Vertical', style: TextStyle(fontSize: 10)),
+  //                   const SizedBox(height: 4),
+  //                   Container(
+  //                     width: 2,
+  //                     height: 30,
+  //                     color: Colors.grey.withValues(alpha: 0.5),
+  //                   ),
+  //                 ],
+  //               ),
+  //               Column(
+  //                 mainAxisAlignment: MainAxisAlignment.center,
+  //                 children: [
+  //                   const Text('Horizontal', style: TextStyle(fontSize: 10)),
+  //                   const SizedBox(height: 4),
+  //                   Container(
+  //                     width: 30,
+  //                     height: 2,
+  //                     color: Colors.grey.withValues(alpha: 0.5),
+  //                   ),
+  //                 ],
+  //               ),
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
 
-  Widget _connectDotsCard() {
-    return _activityCard(
-      title: '2) Connect the Dots 🔵',
-      instruction: 'Tap the dots in order.',
-      child: Container(
-        height: 70,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF0F0F0),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Stack(
-          children: [
-            Positioned(
-              left: 20,
-              top: 23,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2196F3),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text('1', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 50,
-              top: 23,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF4CAF50),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text('2', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 20,
-              top: 23,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFFF9800),
-                  shape: BoxShape.circle,
-                ),
-                child: const Center(
-                  child: Text('3', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // Widget _connectDotsCard() {
+  //   return _activityCard(
+  //     title: '2) Connect the Dots 🔵',
+  //     instruction: 'Tap the dots in order.',
+  //     child: Container(
+  //       height: 70,
+  //       decoration: BoxDecoration(
+  //         color: const Color(0xFFF0F0F0),
+  //         borderRadius: BorderRadius.circular(8),
+  //       ),
+  //       child: Stack(
+  //         children: [
+  //           Positioned(
+  //             left: 20,
+  //             top: 23,
+  //             child: Container(
+  //               width: 20,
+  //               height: 20,
+  //               decoration: const BoxDecoration(
+  //                 color: Color(0xFF2196F3),
+  //                 shape: BoxShape.circle,
+  //               ),
+  //               child: const Center(
+  //                 child: Text('1', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+  //               ),
+  //             ),
+  //           ),
+  //           Positioned(
+  //             left: 50,
+  //             top: 23,
+  //             child: Container(
+  //               width: 20,
+  //               height: 20,
+  //               decoration: const BoxDecoration(
+  //                 color: Color(0xFF4CAF50),
+  //                 shape: BoxShape.circle,
+  //               ),
+  //               child: const Center(
+  //                 child: Text('2', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+  //               ),
+  //             ),
+  //           ),
+  //           Positioned(
+  //             right: 20,
+  //             top: 23,
+  //             child: Container(
+  //               width: 20,
+  //               height: 20,
+  //               decoration: const BoxDecoration(
+  //                 color: Color(0xFFFF9800),
+  //                 shape: BoxShape.circle,
+  //               ),
+  //               child: const Center(
+  //                 child: Text('3', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+  //               ),
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
-  Widget _traceLineCard() {
-    return _activityCard(
-      title: '3) Trace the Line ✏️',
-      instruction: 'Follow the dotted line.',
-      child: Container(
-        height: 60,
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF9F0),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFFFA500), width: 2),
-        ),
-        child: Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                const Text('START', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Container(
-                    height: 1.5,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(1),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text('END', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  // Widget _traceLineCard() {
+  //   return _activityCard(
+  //     title: '3) Trace the Line ✏️',
+  //     instruction: 'Follow the dotted line.',
+  //     child: Container(
+  //       height: 60,
+  //       decoration: BoxDecoration(
+  //         color: const Color(0xFFFFF9F0),
+  //         borderRadius: BorderRadius.circular(8),
+  //         border: Border.all(color: const Color(0xFFFFA500), width: 2),
+  //       ),
+  //       child: Center(
+  //         child: Padding(
+  //           padding: const EdgeInsets.symmetric(horizontal: 16),
+  //           child: Row(
+  //             children: [
+  //               const Text('START', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+  //               const SizedBox(width: 8),
+  //               Expanded(
+  //                 child: Container(
+  //                   height: 1.5,
+  //                   decoration: BoxDecoration(
+  //                     color: Colors.grey.withValues(alpha: 0.5),
+  //                     borderRadius: BorderRadius.circular(1),
+  //                   ),
+  //                 ),
+  //               ),
+  //               const SizedBox(width: 8),
+  //               const Text('END', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+  //             ],
+  //           ),
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
 
-  Widget _curvedShapeCard() {
-    return _activityCard(
-      title: '4) Curved Shape 🌊',
-      instruction: 'Trace the wave pattern.',
-      child: Container(
-        height: 60,
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFF9F0),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFFFA500), width: 2),
-        ),
-        child: Center(
-          child: CustomPaint(
-            painter: CurvePatternPainter(),
-            size: const Size(200, 40),
-          ),
-        ),
-      ),
-    );
-  }
+  // Widget _curvedShapeCard() {
+  //   return _activityCard(
+  //     title: '4) Curved Shape 🌊',
+  //     instruction: 'Trace the wave pattern.',
+  //     child: Container(
+  //       height: 60,
+  //       decoration: BoxDecoration(
+  //         color: const Color(0xFFFFF9F0),
+  //         borderRadius: BorderRadius.circular(8),
+  //         border: Border.all(color: const Color(0xFFFFA500), width: 2),
+  //       ),
+  //       child: Center(
+  //         child: CustomPaint(
+  //           painter: CurvePatternPainter(),
+  //           size: const Size(200, 40),
+  //         ),
+  //       ),
+  //     ),
+  //   );
+  // }
 
   // ===== DYSGRAPHIA WRITING GAMES =====
 
