@@ -25,6 +25,162 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   bool _isFinalizing = false;
   final DateTime _assessmentStartedAt = DateTime.now();
 
+  // Adaptive learning state.  A level is selected by the child/adult; earning
+  // 80% unlocks the next one but never changes the selected level for them.
+  static const List<String> _activityIds = <String>[
+    'rhyme', 'builder', 'image', 'tracing', 'numbers', 'animals',
+    'dice', 'shapes', 'sorter', 'audio', 'matching', 'reading',
+  ];
+  final Map<String, int> _activityLevels = <String, int>{
+    for (final String id in _activityIds) id: 1,
+  };
+  final Map<String, int> _unlockedLevels = <String, int>{
+    for (final String id in _activityIds) id: 1,
+  };
+  final Map<String, int> _activityAttempts = <String, int>{
+    for (final String id in _activityIds) id: 0,
+  };
+  final Map<String, int> _correctAnswers = <String, int>{
+    for (final String id in _activityIds) id: 0,
+  };
+  final Map<String, int> _hintsUsed = <String, int>{
+    for (final String id in _activityIds) id: 0,
+  };
+  final Map<String, double> _activityAccuracy = <String, double>{
+    for (final String id in _activityIds) id: 0,
+  };
+  String _adaptiveMessage = '';
+
+  String get _currentActivityId => _activityIds[_currentActivity];
+  int _levelFor(String id) => _activityLevels[id] ?? 1;
+  int get _animalMaximum => _levelFor('animals') == 1 ? 5 : _levelFor('animals') == 2 ? 10 : 15;
+  int get _matchPairTarget => _levelFor('matching') == 1 ? 3 : _levelFor('matching') == 2 ? 6 : 8;
+  List<int> get _activeNumberRowIndexes {
+    switch (_levelFor('numbers')) {
+      case 1: return <int>[0, 1]; // 1 and 2
+      case 2: return <int>[2, 3]; // 3 and 4
+      default: return <int>[4]; // 5
+    }
+  }
+
+  void _recordAttempt(String activityId, bool correct) {
+    setState(() {
+      _activityAttempts[activityId] = (_activityAttempts[activityId] ?? 0) + 1;
+      if (correct) _correctAnswers[activityId] = (_correctAnswers[activityId] ?? 0) + 1;
+      _activityAccuracy[activityId] =
+          ((_correctAnswers[activityId] ?? 0) / (_activityAttempts[activityId] ?? 1)) * 100;
+    });
+  }
+
+  double _performanceFor(String id) {
+    if ((_activityAttempts[id] ?? 0) > 0) return _activityAccuracy[id] ?? 0;
+    switch (id) {
+      case 'numbers':
+        return _activeNumberRowIndexes
+                .where((int index) => _numberTable[index]['completed'] == true)
+                .length /
+            _activeNumberRowIndexes.length * 100;
+      case 'animals': return _animalGroups.where((Map<String, dynamic> group) => _animalNumberConnections[group['animal']] == group['count']).length / _animalGroups.length * 100;
+      case 'shapes': return _collectedShapes.values.where((bool value) => value).length / _collectedShapes.length * 100;
+      case 'sorter': return _correctPlacements.where((bool value) => value).length / _correctPlacements.length * 100;
+      case 'audio': return _audioExplorerComplete ? 100 : 0;
+      case 'matching': return _matchedPairs.length / (_matchPairTarget * 2) * 100;
+      case 'reading':
+        return _readingWords.where(_readWords.contains).length /
+            _readingWords.length * 100;
+      default: return 0;
+    }
+  }
+
+  void _evaluateLevel(String activityId) {
+    final double accuracy = _clamp(_performanceFor(activityId));
+    final int level = _levelFor(activityId);
+    setState(() {
+      if (accuracy >= 80 && level < 3) {
+        _unlockedLevels[activityId] = math.max(_unlockedLevels[activityId] ?? 1, level + 1);
+        _adaptiveMessage = 'Great job! Level ${level + 1} is ready when you are.';
+      } else if (accuracy < 50) {
+        _hintsUsed[activityId] = (_hintsUsed[activityId] ?? 0) + 1;
+        _adaptiveMessage = "Here's a little hint. Let's try this one again!";
+      } else {
+        _adaptiveMessage = "Nice work! You can try this level again.";
+      }
+      _activityAccuracy[activityId] = accuracy;
+    });
+    _tts.speak(_adaptiveMessage);
+  }
+
+  void _advanceToNextLevel(String activityId) {
+    final int level = _levelFor(activityId);
+    if (level >= 3 || _performanceFor(activityId) < 80) return;
+    setState(() {
+      _unlockedLevels[activityId] = math.max(_unlockedLevels[activityId] ?? 1, level + 1);
+      _activityLevels[activityId] = level + 1;
+      _activityAccuracy[activityId] = _clamp(_performanceFor(activityId));
+      _adaptiveMessage = 'Great job! Welcome to Level ${level + 1}!';
+    });
+    _tts.speak(_adaptiveMessage);
+    Future<void>.delayed(const Duration(milliseconds: 700), () {
+      if (mounted && _currentActivityId == activityId) _resetCurrentActivityForLevel();
+    });
+  }
+
+  List<String> get _activeLowercaseLetters => _lowercaseLetters.take(_matchPairTarget).toList();
+  List<String> get _activeUppercaseLetters =>
+      _activeLowercaseLetters.map((String letter) => _letterPairs[letter]!).toList()..shuffle();
+
+  Widget _buildAdaptiveLearningPanel() {
+    final String id = _currentActivityId;
+    final int selected = _levelFor(id);
+    final int unlocked = _unlockedLevels[id] ?? 1;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: Colors.purple.withOpacity(.08), borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('🌈 My Learning Journey  •  Level $selected', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.deepPurple)),
+        const SizedBox(height: 6),
+        Wrap(spacing: 6, children: List<Widget>.generate(3, (int index) {
+          final int level = index + 1;
+          final bool available = level <= unlocked;
+          return ChoiceChip(
+            label: Text('Level $level${available ? '' : ' 🔒'}'), selected: selected == level,
+            onSelected: available ? (_) => setState(() { _activityLevels[id] = level; _adaptiveMessage = ''; _resetCurrentActivityForLevel(); }) : null,
+          );
+        })),
+        if (_adaptiveMessage.isNotEmpty) Padding(
+          padding: const EdgeInsets.only(top: 5), child: Text(_adaptiveMessage, style: const TextStyle(fontSize: 12)),
+        ),
+      ]),
+    );
+  }
+
+  void _resetCurrentActivityForLevel() {
+    switch (_currentActivity) {
+      case 0: _rhymeComplete = false; _selectNewRhymeCenter(); break;
+      case 1: _letterBuilderComplete = false; _resetLetterBuilder(); break;
+      case 2: _currentImageIndex = 0; _imageSnapComplete = false; break;
+      case 3:
+        _currentPracticeLetter = _practiceLetters.first;
+        _tracingComplete = false;
+        _startTracing();
+        break;
+      case 4: _numberTableComplete = false; break;
+      case 5: _animalCountingComplete = false; _initializeAnimalCounting(); break;
+      case 6: _dicePathComplete = false; _initializeDicePath(); break;
+      case 9:
+        _audioExplorerComplete = false;
+        _selectedAudioLetter = null;
+        _targetLetter = _audioTargetForLevel;
+        break;
+      case 10: _matchedPairs.clear(); _matchUpComplete = false; break;
+      case 11:
+        _readingRainbowComplete = false;
+        _selectedWordForSpeech = null;
+        break;
+    }
+  }
+
   // Rhyme-Time Pop state (NEW)
   final List<String> _rhymeCenters = ['hand', 'cat', 'ball', 'tree'];
   String _currentRhymeCenter = '';
@@ -52,18 +208,48 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   bool _letterBuilderComplete = false;
 
   // Image-to-Word Snap state (NEW)
-  final List<Map<String, dynamic>> _imageWords = [
+  final List<Map<String, dynamic>> _legacyImageWords = [
     {'image': '🐕', 'word': 'dog', 'letters': ['D', 'G', 'P', 'B'], 'correct': 'D'},
     {'image': '🐱', 'word': 'cat', 'letters': ['C', 'T', 'K', 'S'], 'correct': 'C'},
     {'image': '🦇', 'word': 'bat', 'letters': ['B', 'T', 'P', 'D'], 'correct': 'B'},
     {'image': '📖', 'word': 'book', 'letters': ['B', 'K', 'P', 'T'], 'correct': 'B'}
   ];
+  // Each level deliberately uses a different group of pictures and words.
+  // The choices are stored with the item, so the correct answer is always shown.
+  final Map<int, List<Map<String, dynamic>>> _imageWordsByLevel = <int, List<Map<String, dynamic>>>{
+    1: <Map<String, dynamic>>[
+      {'image': '\u{1F436}', 'word': 'dog', 'letters': ['D', 'B'], 'correct': 'D'},
+      {'image': '\u{1F431}', 'word': 'cat', 'letters': ['C', 'M'], 'correct': 'C'},
+      {'image': '\u{2600}', 'word': 'sun', 'letters': ['S', 'T'], 'correct': 'S'},
+      {'image': '\u{1F41F}', 'word': 'fish', 'letters': ['F', 'P'], 'correct': 'F'},
+    ],
+    2: <Map<String, dynamic>>[
+      {'image': '\u{1FA81}', 'word': 'kite', 'letters': ['K', 'C', 'T', 'L'], 'correct': 'K'},
+      {'image': '\u{1F319}', 'word': 'moon', 'letters': ['M', 'N', 'W', 'B'], 'correct': 'M'},
+      {'image': '\u{1F981}', 'word': 'lion', 'letters': ['L', 'R', 'D', 'P'], 'correct': 'L'},
+      {'image': '\u{1F333}', 'word': 'tree', 'letters': ['T', 'F', 'S', 'G'], 'correct': 'T'},
+    ],
+    3: <Map<String, dynamic>>[
+      {'image': '\u{1F418}', 'word': 'elephant', 'letters': ['E', 'A', 'I', 'L', 'F', 'P'], 'correct': 'E'},
+      {'image': '\u{2602}', 'word': 'umbrella', 'letters': ['U', 'O', 'V', 'M', 'B', 'H'], 'correct': 'U'},
+      {'image': '\u{1F3B7}', 'word': 'xylophone', 'letters': ['X', 'Z', 'Y', 'K', 'Q', 'S'], 'correct': 'X'},
+      {'image': '\u{1F353}', 'word': 'strawberry', 'letters': ['S', 'T', 'R', 'B', 'C', 'P'], 'correct': 'S'},
+    ],
+  };
+  List<Map<String, dynamic>> get _imageWords =>
+      _imageWordsByLevel[_levelFor('image')] ?? _imageWordsByLevel[1]!;
   int _currentImageIndex = 0;
   String? _selectedLetter;
   bool _imageSnapComplete = false;
 
   // Tracing Practice state (NEW)
-  final List<String> _practiceLetters = ['L', 'P', 'T', 'F'];
+  final Map<int, List<String>> _practiceLettersByLevel = <int, List<String>>{
+    1: <String>['L', 'B'],
+    2: <String>['O', 'Q'],
+    3: <String>['F', 'P'],
+  };
+  List<String> get _practiceLetters =>
+      _practiceLettersByLevel[_levelFor('tracing')] ?? _practiceLettersByLevel[1]!;
   String _currentPracticeLetter = 'L';
   List<Offset> _tracedPoints = [];
   bool _isTracing = false;
@@ -75,6 +261,23 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       const Offset(40, 40),   // Top of L
       const Offset(40, 160),  // Bottom of L
       const Offset(160, 160), // End of bottom line
+    ],
+    'B': [
+      const Offset(40, 40), const Offset(40, 160), // vertical stem
+      const Offset(40, 100), const Offset(115, 55), const Offset(115, 100),
+      const Offset(40, 100), const Offset(115, 115), const Offset(115, 160),
+      const Offset(40, 160),
+    ],
+    'O': [
+      const Offset(70, 40), const Offset(130, 40), const Offset(160, 70),
+      const Offset(160, 130), const Offset(130, 160), const Offset(70, 160),
+      const Offset(40, 130), const Offset(40, 70), const Offset(70, 40),
+    ],
+    'Q': [
+      const Offset(70, 40), const Offset(130, 40), const Offset(160, 70),
+      const Offset(160, 130), const Offset(130, 160), const Offset(70, 160),
+      const Offset(40, 130), const Offset(40, 70), const Offset(70, 40),
+      const Offset(115, 115), const Offset(165, 170),
     ],
     'P': [
       const Offset(40, 40),   // Top of P
@@ -108,7 +311,20 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   bool _letterSorterComplete = false;
 
   // Original Audio Explorer state
-  final List<String> _audioLetters = ['b', 'c', 'a'];
+  final Map<int, List<String>> _audioLettersByLevel = <int, List<String>>{
+    1: <String>['b', 'c', 'a'],
+    2: <String>['d', 'e', 'f'],
+    3: <String>['g', 'h', 'j'],
+  };
+  final Map<int, String> _audioTargetsByLevel = <int, String>{
+    1: 'b',
+    2: 'e',
+    3: 'j',
+  };
+  List<String> get _audioLetters =>
+      _audioLettersByLevel[_levelFor('audio')] ?? _audioLettersByLevel[1]!;
+  String get _audioTargetForLevel =>
+      _audioTargetsByLevel[_levelFor('audio')] ?? 'b';
   String _targetLetter = '';
   String? _selectedAudioLetter;
   bool _audioExplorerComplete = false;
@@ -126,10 +342,13 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   bool _matchUpComplete = false;
 
   // Original Reading Rainbow state
-  final List<String> _readingWords = [
-    'nature', 'might', 'strong', 'beauty', 'moody', 
-    'smart', 'blue', 'green', 'true', 'ever', 'free'
-  ];
+  final Map<int, List<String>> _readingWordsByLevel = <int, List<String>>{
+    1: <String>['blue', 'green'],
+    2: <String>['smart', 'nature', 'strong'],
+    3: <String>['beauty', 'might', 'free'],
+  };
+  List<String> get _readingWords =>
+      _readingWordsByLevel[_levelFor('reading')] ?? _readingWordsByLevel[1]!;
   final Set<String> _readWords = {};
   bool _readingRainbowComplete = false;
 
@@ -355,15 +574,18 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _markWordAsPracticed(String word) {
+    bool levelComplete = false;
     setState(() {
       _readWords.add(word);
       _speechResults[word] = "Manual practice";
       _speechConfidence[word] = 0.5; // Neutral confidence for manual practice
-      if (_readWords.length == _readingWords.length) {
+      if (_readingWords.every(_readWords.contains)) {
         _readingRainbowComplete = true;
+        levelComplete = true;
       }
     });
     _tts.speak('Great job practicing $word!');
+    if (levelComplete) _advanceToNextLevel('reading');
   }
 
   bool _analyzeSpeechResult(String targetWord, String spokenWord, double confidence) {
@@ -399,12 +621,15 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     
     if (isCorrect) {
       _tts.speak('Great pronunciation! You said $spokenWord correctly!');
+      bool levelComplete = false;
       setState(() {
         _readWords.add(targetWord);
-        if (_readWords.length == _readingWords.length) {
+        if (_readingWords.every(_readWords.contains)) {
           _readingRainbowComplete = true;
+          levelComplete = true;
         }
       });
+      if (levelComplete) _advanceToNextLevel('reading');
     } else {
       _tts.speak('Nice try! You said $spokenWord, but the word is $targetWord. Try again!');
     }
@@ -447,7 +672,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     _jumbledLetters = List.from(_letters)..shuffle();
     _placedLetters = List.filled(4, '');
     _correctPlacements = List.filled(4, false);
-    _targetLetter = _audioLetters[math.Random().nextInt(_audioLetters.length)];
+    _targetLetter = _audioTargetForLevel;
     
     // Initialize NEW activities
     _initializeNumberTable();
@@ -460,7 +685,13 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     setState(() {
       _currentRhymeCenter = _rhymeCenters[math.Random().nextInt(_rhymeCenters.length)];
       // Combine rhyming words and distractors
-      List<String> allWords = [..._rhymingWords[_currentRhymeCenter]!, ..._distractorWords[_currentRhymeCenter]!];
+      final int level = _levelFor('rhyme');
+      final int rhymeCount = level == 1 ? 2 : level == 2 ? 3 : _rhymingWords[_currentRhymeCenter]!.length;
+      final int distractorCount = level == 1 ? 1 : _distractorWords[_currentRhymeCenter]!.length;
+      List<String> allWords = [
+        ..._rhymingWords[_currentRhymeCenter]!.take(rhymeCount),
+        ..._distractorWords[_currentRhymeCenter]!.take(distractorCount),
+      ];
       allWords.shuffle();
       _currentBubbles = allWords;
       _poppedBubbles.clear();
@@ -488,13 +719,23 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   void _initializeAnimalCounting() {
     setState(() {
       _animalNumberConnections.clear();
-      _showCrossOutMode = false;
+      final math.Random random = math.Random();
+      for (final Map<String, dynamic> group in _animalGroups) {
+        group['count'] = 1 + random.nextInt(_animalMaximum);
+        group['selected'] = false;
+      }
+      _showCrossOutMode = _levelFor('animals') == 3;
     });
   }
 
   void _initializeDicePath() {
     setState(() {
-      _scrambledDice = List.from(_diceSequence)..shuffle();
+      final int count = _levelFor('dice') == 1 ? 3 : _levelFor('dice') == 2 ? 5 : 7;
+      _scrambledDice = _diceSequence.take(count).toList()..shuffle();
+      // Keep the existing 3x3 layout; zero represents an empty path tile.
+      while (_scrambledDice.length < 9) {
+        _scrambledDice.add(0);
+      }
       _tappedDice.clear();
       _currentDiceIndex = 0;
       _ramaPosition = 0;
@@ -511,19 +752,22 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     if (!_poppedBubbles.contains(bubble)) {
       bool isRhyme = _rhymingWords[_currentRhymeCenter]!.contains(bubble);
       if (isRhyme) {
+        _recordAttempt('rhyme', true);
         setState(() {
           _poppedBubbles.add(bubble);
         });
         _tts.speak('Good job! $bubble rhymes with ${_currentRhymeCenter}!');
         
         // Check if all rhyming bubbles are popped
-        int totalRhymes = _rhymingWords[_currentRhymeCenter]!.length;
+        int totalRhymes = _currentBubbles.where(_rhymingWords[_currentRhymeCenter]!.contains).length;
         if (_poppedBubbles.length == totalRhymes) {
           setState(() {
             _rhymeComplete = true;
           });
+          _advanceToNextLevel('rhyme');
         }
       } else {
+        _recordAttempt('rhyme', false);
         _shakeController.forward().then((_) => _shakeController.reverse());
         _tts.speak('Try again! $bubble doesn\'t rhyme with ${_currentRhymeCenter}');
       }
@@ -539,9 +783,11 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       // Check if letter is properly built
       bool isCorrect = _checkLetterBuilt();
       if (isCorrect) {
+        _recordAttempt('builder', true);
         _letterBuilt = true;
         _tts.speak('Great job building the letter $_currentBuildLetter!');
         _letterBuilderComplete = true;
+        _advanceToNextLevel('builder');
       } else {
         // Give guidance based on current letter
         _giveLetterGuidance();
@@ -603,19 +849,35 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     setState(() {
       _selectedLetter = letter;
       if (letter == _imageWords[_currentImageIndex]['correct']) {
+        _recordAttempt('image', true);
         _tts.speak('Correct! ${_imageWords[_currentImageIndex]['word']} starts with $letter');
         if (_currentImageIndex < _imageWords.length - 1) {
           _currentImageIndex++;
           _selectedLetter = null;
         } else {
           _imageSnapComplete = true;
+          _advanceToNextLevel('image');
         }
       } else {
+        _recordAttempt('image', false);
         _shakeController.forward().then((_) => _shakeController.reverse());
         _tts.speak('Not quite! Try again');
         _selectedLetter = null;
       }
     });
+  }
+
+  List<String> _imageChoices(Map<String, dynamic> item) {
+    final List<String> choices = List<String>.from(item['letters'] as List);
+    final int level = _levelFor('image');
+    if (level == 1) return choices.take(2).toList();
+    if (level == 2) return choices;
+    for (final String extra in <String>['A', 'E', 'L', 'R', 'M', 'N']) {
+      if (!choices.contains(extra)) choices.add(extra);
+      if (choices.length == 6) break;
+    }
+    choices.shuffle();
+    return choices;
   }
 
   void _startTracing() {
@@ -645,13 +907,15 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       // Check if tracing is complete
       if (_tracedPoints.length >= 15 && !_tracingComplete) {
         _calculateTracingAccuracy();
-        if (_tracingAccuracy > 0.6) {
+        final double threshold = _levelFor('tracing') == 1 ? .50 : _levelFor('tracing') == 2 ? .60 : .75;
+        if (_tracingAccuracy > threshold && _hasCoveredEntireLetter()) {
+          _recordAttempt('tracing', true);
           _tracingComplete = true;
           _isTracing = false;
           _tts.speak('Excellent! You traced $_currentPracticeLetter with ${(_tracingAccuracy * 100).round()}% accuracy!');
         } else if (!_hasSpokenFeedback) {
           _hasSpokenFeedback = true;
-          _tts.speak('Keep practicing! Your accuracy is ${(_tracingAccuracy * 100).round()}%. Try to follow the dotted lines more closely.');
+          _tts.speak('Keep going! Trace all the way over every red guide dot before you finish.');
         }
       }
     });
@@ -667,25 +931,53 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     double totalDistance = 0;
     double matchedDistance = 0;
     
-    for (int i = 0; i < _tracedPoints.length - 1; i++) {
+    for (int i = 0; i < _tracedPoints.length; i++) {
       final tracedPoint = _tracedPoints[i];
       double minDistance = double.infinity;
-      
-      // Find closest point on target path
-      for (final targetPoint in targetPath) {
-        final distance = (tracedPoint - targetPoint).distance;
+
+      // Find the closest point along each dotted guide segment.  Comparing
+      // against only the end points made correct strokes between red dots look
+      // inaccurate.
+      for (int segment = 0; segment < targetPath.length - 1; segment++) {
+        final double distance = _distanceToSegment(
+          tracedPoint,
+          targetPath[segment],
+          targetPath[segment + 1],
+        );
         if (distance < minDistance) {
           minDistance = distance;
         }
       }
-      
+
       totalDistance += 1.0;
-      if (minDistance < 20) {
+      if (minDistance <= 30) {
         matchedDistance += 1.0;
       }
     }
     
     _tracingAccuracy = totalDistance > 0 ? matchedDistance / totalDistance : 0.0;
+  }
+
+  double _distanceToSegment(Offset point, Offset start, Offset end) {
+    final Offset segment = end - start;
+    final double segmentLengthSquared = segment.dx * segment.dx + segment.dy * segment.dy;
+    if (segmentLengthSquared == 0) return (point - start).distance;
+    final Offset relativePoint = point - start;
+    final double progress = ((relativePoint.dx * segment.dx) +
+            (relativePoint.dy * segment.dy)) /
+        segmentLengthSquared;
+    final double clampedProgress = progress.clamp(0.0, 1.0);
+    final Offset closest = start + segment * clampedProgress;
+    return (point - closest).distance;
+  }
+
+  bool _hasCoveredEntireLetter() {
+    final List<Offset> guidePoints = _letterPaths[_currentPracticeLetter] ?? <Offset>[];
+    // A short accurate stroke no longer counts: every turn/end guide point
+    // must be reached before the letter can be completed.
+    return guidePoints.every((Offset guide) => _tracedPoints.any(
+          (Offset traced) => (traced - guide).distance <= 28,
+        ));
   }
 
   void _nextPracticeLetter() {
@@ -700,7 +992,16 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         _hasSpokenFeedback = false;
       });
     } else {
-      _tts.speak('Excellent! You completed all tracing exercises!');
+      _tts.speak('Excellent! You completed this tracing level!');
+      // A level is only finished after every letter in its sequence has been
+      // completed. At that point award the successful level attempt so the
+      // adaptive progression can move on instead of remaining on the same UI.
+      setState(() {
+        _activityAttempts['tracing'] = 1;
+        _correctAnswers['tracing'] = 1;
+        _activityAccuracy['tracing'] = 100;
+      });
+      _advanceToNextLevel('tracing');
     }
   }
 
@@ -1242,7 +1543,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             Wrap(
               spacing: 20,
               runSpacing: 20,
-              children: (currentItem['letters'] != null && currentItem['letters'].isNotEmpty ? List<String>.from(currentItem['letters']) : ['A', 'B', 'C', 'D']).map((letter) => 
+              children: _imageChoices(currentItem).map((letter) => 
                 GestureDetector(
                   onTap: () => _selectImageLetter(letter),
                   child: Container(
@@ -1499,8 +1800,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             
             const SizedBox(height: 10),
             
-            // Table rows
-            ...List.generate(5, (index) {
+            // Show only the number rows assigned to the selected level.
+            ..._activeNumberRowIndexes.map((int index) {
               final row = _numberTable[index];
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -1714,12 +2015,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       });
       _tts.speak('Great job! ${rowIndex + 1} is ${row['words']}');
       
-      // Check if all rows are complete
-      if (_numberTable.every((r) => r['completed'])) {
+      // Check only the rows assigned to this level.
+      if (_activeNumberRowIndexes.every(
+          (int index) => _numberTable[index]['completed'] == true)) {
         setState(() {
           _numberTableComplete = true;
         });
-        _tts.speak('Amazing! You completed the entire number table!');
+        _advanceToNextLevel('numbers');
+        _tts.speak('Amazing! You completed this number level!');
       }
     }
   }
@@ -1892,7 +2195,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 SizedBox(
                   width: 80,
                   child: Column(
-                    children: _availableNumbers.map((number) => 
+                    children: List<int>.generate(_animalMaximum, (int index) => index + 1).map((number) => 
                       Container(
                         margin: const EdgeInsets.only(bottom: 8),
                         width: 60,
@@ -1975,6 +2278,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           if (allCorrect) {
             _animalCountingComplete = true;
             _tts.speak('Excellent! All animals are correctly counted!');
+            _advanceToNextLevel('animals');
           } else {
             _tts.speak('Some connections are incorrect. Try again!');
           }
@@ -2326,17 +2630,20 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     
     setState(() {
       if (diceValue == _currentDiceIndex + 1) {
+        _recordAttempt('dice', true);
         // Correct sequence
         _tappedDice.add(diceValue);
         _currentDiceIndex++;
         _ramaPosition = position;
         _tts.speak('Good! ${diceValue}');
         
-        if (_currentDiceIndex == 9) {
+        if (_currentDiceIndex == _scrambledDice.where((int value) => value > 0).length) {
           _dicePathComplete = true;
           _tts.speak('Perfect! You completed the sequence!');
+          _advanceToNextLevel('dice');
         }
       } else {
+        _recordAttempt('dice', false);
         // Wrong sequence - gentle pulse
         _shakeController.forward().then((_) => _shakeController.reverse());
         _tts.speak('Not quite! Look for ${_currentDiceIndex + 1}');
@@ -2701,6 +3008,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         if (_collectedShapes.values.every((collected) => collected)) {
           _shapeDetectiveComplete = true;
           _tts.speak('Amazing! You found all the shapes!');
+          _advanceToNextLevel('shapes');
         }
       } else {
         _tts.speak('That\'s a $shape, but we\'re looking for Triangle, Circle, or Square!');
@@ -2909,7 +3217,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             Wrap(
               spacing: 16,
               runSpacing: 16,
-              children: (_audioLetters.isNotEmpty ? _audioLetters : ['a', 'b', 'c']).map((letter) => 
+              children: _audioLetters.map((letter) => 
                 GestureDetector(
                   onTap: () {
                     setState(() {
@@ -2921,6 +3229,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                       setState(() {
                         _audioExplorerComplete = true;
                       });
+                      _advanceToNextLevel('audio');
                     } else {
                       _shakeController.forward().then((_) => _shakeController.reverse());
                       _tts.speak("Try again!");
@@ -3003,7 +3312,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 // Lowercase column
                 Expanded(
                   child: Column(
-                    children: (_lowercaseLetters.isNotEmpty ? _lowercaseLetters : ['h', 'i', 'e', 'm', 'f']).map((letter) => 
+                    children: _activeLowercaseLetters.map((letter) => 
                       GestureDetector(
                         onTap: () {
                           setState(() {
@@ -3016,8 +3325,9 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                               _selectedLowercase = null;
                               _selectedUppercase = null;
                               
-                              if (_matchedPairs.length == 20) {
+                              if (_matchedPairs.length == _matchPairTarget * 2) {
                                 _matchUpComplete = true;
+                                _advanceToNextLevel('matching');
                               }
                             }
                           });
@@ -3054,7 +3364,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 // Uppercase column
                 Expanded(
                   child: Column(
-                    children: (_uppercaseLetters.isNotEmpty ? _uppercaseLetters : ['N', 'I', 'D', 'M', 'F']).map((letter) => 
+                    children: _activeUppercaseLetters.map((letter) => 
                       GestureDetector(
                         onTap: () {
                           setState(() {
@@ -3067,8 +3377,9 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                               _selectedLowercase = null;
                               _selectedUppercase = null;
                               
-                              if (_matchedPairs.length == 20) {
+                              if (_matchedPairs.length == _matchPairTarget * 2) {
                                 _matchUpComplete = true;
+                                _advanceToNextLevel('matching');
                               }
                             }
                           });
@@ -3153,7 +3464,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             Wrap(
               spacing: 12,
               runSpacing: 12,
-              children: (_readingWords.isNotEmpty ? _readingWords : ['nature', 'might', 'strong']).map((word) => 
+              children: _readingWords.map((word) => 
                 Container(
                   child: Column(
                     children: [
@@ -3346,6 +3657,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _nextActivity() {
+    _evaluateLevel(_currentActivityId);
     // Allow progression regardless of completion status
     if (_currentActivity < 11) {
       setState(() {
@@ -3546,6 +3858,13 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       'currentActivityIndex': _currentActivity,
       'tracingAccuracy': (_tracingAccuracy * 100).round(),
       'readWordsCompleted': _readWords.length,
+      'adaptiveLearning': <String, dynamic>{
+        'selectedLevels': _activityLevels,
+        'unlockedLevels': _unlockedLevels,
+        'accuracy': _activityAccuracy.map((String key, double value) => MapEntry<String, double>(key, _clamp(value))),
+        'attempts': _activityAttempts,
+        'hintsUsed': _hintsUsed,
+      },
     };
   }
 
@@ -3594,6 +3913,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       body: Column(
         children: [
           _buildActivityIndicator(),
+          _buildAdaptiveLearningPanel(),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(20),
