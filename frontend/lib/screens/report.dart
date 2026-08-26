@@ -60,6 +60,13 @@ class _ReportScreenState extends State<ReportScreen> {
           style: TextStyle(color: Color(0xFF1A2B47), fontWeight: FontWeight.bold),
         ),
         iconTheme: const IconThemeData(color: Color(0xFF1A2B47)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.picture_as_pdf, color: Color(0xFF1A2B47)),
+            onPressed: () => _showExportDialog(context),
+            tooltip: 'Export Report',
+          ),
+        ],
       ),
       body: FutureBuilder<String?>(
         future: _reportIdFuture,
@@ -110,6 +117,22 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
+  void _showExportDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export Report'),
+        content: const Text('PDF export feature coming soon. You can screenshot or print this page for now.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildReportContent(Map<String, dynamic> data) {
     final Map<String, dynamic> scores =
         (data['scores'] as Map<String, dynamic>? ?? <String, dynamic>{});
@@ -122,22 +145,26 @@ class _ReportScreenState extends State<ReportScreen> {
         (data['scoredSkillKeys'] as List<dynamic>? ?? <dynamic>[])
             .map((dynamic item) => item.toString())
             .toList();
-    final List<String> assessedActivities =
-        (data['assessedActivities'] as List<dynamic>? ?? <dynamic>[])
-            .map((dynamic item) => item.toString())
-            .toList();
-    final List<String> insights = (data['insights'] as List<dynamic>? ?? <dynamic>[])
-        .map((dynamic item) => item.toString())
-        .toList();
+
     final List<String> recommendations =
         (data['recommendations'] as List<dynamic>? ?? <dynamic>[])
             .map((dynamic item) => item.toString())
             .toList();
+    final List<String> strengths = (data['strengths'] as List<dynamic>? ?? <dynamic>[])
+        .map((dynamic item) => item.toString())
+        .toList();
+    final List<String> areasNeedingSupport = (data['areasNeedingSupport'] as List<dynamic>? ?? <dynamic>[])
+        .map((dynamic item) => item.toString())
+        .toList();
     final Map<String, dynamic> parentQuestionnaire =
         (data['parentQuestionnaire'] as Map<String, dynamic>? ??
             <String, dynamic>{});
     final Map<String, dynamic> email =
         (data['email'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> activityLevelDetails =
+        (data['activityLevelDetails'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> domainSupportIndicators =
+        (data['domainSupportIndicators'] as Map<String, dynamic>? ?? <String, dynamic>{});
 
     final String childName = (data['childName'] ?? 'Child').toString();
     final String parentName = (data['parentName'] ?? 'Parent').toString();
@@ -151,8 +178,6 @@ class _ReportScreenState extends State<ReportScreen> {
     final double overall = _readScore(scores, 'overall');
     final String emailStatus = (email['status'] ?? 'queued').toString();
     final bool parentIncluded = parentQuestionnaire['available'] == true;
-    final double parentRisk = _asDouble(parentQuestionnaire['overallRisk']);
-    final int answeredByParent = _asInt(parentQuestionnaire['answeredQuestions']);
     final List<MapEntry<String, double>> skillEntries =
         _extractSkillEntries(scores, scoredSkillKeys);
     final String generatedAt = _formatCreatedAt(data['createdAt']);
@@ -162,6 +187,7 @@ class _ReportScreenState extends State<ReportScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          // Section 1: Assessment Summary
           _headerCard(
             childName: childName,
             parentName: parentName,
@@ -176,8 +202,10 @@ class _ReportScreenState extends State<ReportScreen> {
             generatedAt: generatedAt,
           ),
           const SizedBox(height: 16),
+
+          // Section 2: Domain Performance
           _sectionCard(
-            title: 'Skill Overview',
+            title: 'Domain Performance',
             child: Column(
               children: skillEntries.isEmpty
                   ? <Widget>[
@@ -189,72 +217,88 @@ class _ReportScreenState extends State<ReportScreen> {
                   : skillEntries.map((MapEntry<String, double> item) {
                       final String label = skillLabels[item.key] ?? item.key;
                       final Color color = _colorForSkill(item.key);
-                      return _scoreBar(label, item.value, color);
+                      final String domainKey = item.key;
+                      final Map<String, dynamic>? domainIndicator = domainSupportIndicators[domainKey];
+                      final double childAvgAccuracy = domainIndicator != null
+                          ? (domainIndicator['averageAccuracy'] as num?)?.toDouble() ?? 0.0
+                          : 0.0;
+                      final double parentSupport = domainIndicator != null
+                          ? (domainIndicator['parentSupportScore'] as num?)?.toDouble() ?? 0.0
+                          : 0.0;
+                      return _domainScoreCard(
+                        label,
+                        item.value,
+                        color,
+                        childAvgAccuracy: childAvgAccuracy,
+                        parentSupport: parentSupport > 0 ? parentSupport : null,
+                      );
                     }).toList(),
             ),
           ),
           const SizedBox(height: 16),
+
+          // Section 3: Strengths
+          if (strengths.isNotEmpty) ...[
+            _sectionCard(
+              title: 'Strengths',
+              child: Column(
+                children: strengths
+                    .take(4)
+                    .map((String line) => _bullet(line, Colors.green))
+                    .toList(),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Section 4: Areas for Practice
+          if (areasNeedingSupport.isNotEmpty) ...[
+            _sectionCard(
+              title: 'Areas That May Need More Practice',
+              child: Column(
+                children: areasNeedingSupport
+                    .take(5)
+                    .map((String line) => _bullet(line, Colors.orange))
+                    .toList(),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Section 5: Recommended Next Steps
           _sectionCard(
-            title: 'Parent Input',
-            child: parentIncluded
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'Included from latest questionnaire responses.',
-                        style: const TextStyle(color: Colors.black87),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Parent Responses Used: $answeredByParent questions',
-                        style: const TextStyle(color: Colors.black87),
-                      ),
-                      Text(
-                        'Parent Reported Risk: ${parentRisk.toStringAsFixed(0)}%',
-                        style: const TextStyle(color: Colors.black87),
-                      ),
-                    ],
-                  )
-                : const Text(
-                    'Parent questionnaire not found for this report. Score is based on child activity only.',
-                    style: TextStyle(color: Colors.black54),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          _sectionCard(
-            title: 'Assessed Activities',
-            child: assessedActivities.isEmpty
-                ? const Text('No activity list available.', style: TextStyle(color: Colors.black54))
-                : Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: assessedActivities
-                        .map((String activity) => _activityChip(activity))
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          _sectionCard(
-            title: 'Key Insights',
-            child: insights.isEmpty
-                ? const Text('No insights generated.', style: TextStyle(color: Colors.black54))
-                : Column(
-                    children: insights
-                        .map((String line) => _bullet(line, Colors.blueGrey))
-                        .toList(),
-                  ),
-          ),
-          const SizedBox(height: 16),
-          _sectionCard(
-            title: 'Recommended Actions',
+            title: 'Recommended Next Steps',
             child: recommendations.isEmpty
                 ? const Text('No actions available.', style: TextStyle(color: Colors.black54))
                 : Column(
                     children: recommendations
-                        .map((String line) => _bullet(line, Colors.teal))
+                        .map((String line) => _recommendationCard(line))
                         .toList(),
                   ),
           ),
+          const SizedBox(height: 16),
+
+          // Section 6: Detailed Activity Results (Collapsible)
+          _sectionCard(
+            title: 'Detailed Activity Results',
+            child: _buildCollapsibleActivityDetails(activityLevelDetails, skillLabels),
+          ),
+          const SizedBox(height: 16),
+
+          // Section 7: Parent Input
+          _sectionCard(
+            title: 'Parent Input',
+            child: parentIncluded
+                ? _buildParentObservationsCompact(parentQuestionnaire)
+                : const Text(
+                    'Parent questionnaire not completed. Overall score based on child assessment only (72% weightage).',
+                    style: TextStyle(color: Colors.black54),
+                  ),
+          ),
+          const SizedBox(height: 16),
+
+          // Section 8: Short Disclaimer
+          _disclaimerCard(),
         ],
       ),
     );
@@ -273,41 +317,105 @@ class _ReportScreenState extends State<ReportScreen> {
     required String emailStatus,
     required String generatedAt,
   }) {
+    Color statusColor;
+    if (overall >= 75) {
+      statusColor = Colors.green;
+    } else if (overall >= 50) {
+      statusColor = Colors.orange;
+    } else {
+      statusColor = Colors.red;
+    }
+
+    String statusText;
+    if (overall >= 75) {
+      statusText = 'On Track';
+    } else if (overall >= 50) {
+      statusText = 'Moderate Support Needed';
+    } else {
+      statusText = 'High Support Needed';
+    }
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        gradient: LinearGradient(
+          colors: [Colors.white, Colors.blue.shade50],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: <BoxShadow>[
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 12, offset: const Offset(0, 4)),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            '$childName - Assessment Complete',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 30,
+                backgroundColor: Colors.purple.shade100,
+                child: Text(
+                  childName.isNotEmpty ? childName[0].toUpperCase() : 'C',
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.purple),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$childName — Assessment Complete',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('Parent: $parentName', style: const TextStyle(color: Colors.black87, fontSize: 14)),
+                    if (parentEmail.isNotEmpty)
+                      Text('Email: $parentEmail', style: const TextStyle(color: Colors.black54, fontSize: 12)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              _infoChip('Age: $childAge', Icons.cake),
+              const SizedBox(width: 8),
+              _infoChip('Grade: $childGrade', Icons.school),
+              const SizedBox(width: 8),
+              _infoChip(assessmentType.replaceAll('_', ' ').toUpperCase(), Icons.assessment),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(
+                child: _metricCircle('Overall Score', '${overall.toStringAsFixed(0)}%', statusColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _metricCircle('Confidence', '${confidence.toStringAsFixed(0)}%', Colors.blue),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _statusBadge(statusText, statusColor),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          Text('Parent: $parentName', style: const TextStyle(color: Colors.black87)),
-          if (parentEmail.isNotEmpty)
-            Text('Parent Email: $parentEmail', style: const TextStyle(color: Colors.black87)),
-          Text('Child Age: $childAge', style: const TextStyle(color: Colors.black87)),
-          Text('Child Grade: $childGrade', style: const TextStyle(color: Colors.black87)),
-          if (assessmentType.isNotEmpty)
-            Text('Assessment Type: $assessmentType', style: const TextStyle(color: Colors.black87)),
-          Text('Generated: $generatedAt', style: const TextStyle(color: Colors.black87)),
-          const SizedBox(height: 8),
-          Text(statusLabel, style: const TextStyle(color: Colors.black87)),
+          Text(
+            'Overall score combines child assessment (72%) and parent questionnaire (28%).',
+            style: const TextStyle(fontSize: 11, color: Colors.black54, fontStyle: FontStyle.italic),
+          ),
           const SizedBox(height: 12),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: <Widget>[
-              _chip('Overall: ${overall.toStringAsFixed(0)}%'),
-              _chip('Confidence: ${confidence.toStringAsFixed(0)}%'),
+          Row(
+            children: [
+              _chip('Generated: $generatedAt'),
+              const SizedBox(width: 8),
               _chip('Email: $emailStatus'),
             ],
           ),
@@ -316,20 +424,431 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  Widget _chip(String text) {
+  Widget _infoChip(String label, IconData icon) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: const Color(0xFFEFF5FF),
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        text,
-        style: const TextStyle(
-          color: Color(0xFF275DAD),
-          fontWeight: FontWeight.w600,
-          fontSize: 12,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF275DAD)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF275DAD),
+              fontWeight: FontWeight.w600,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricCircle(String label, String value, Color color) {
+    return Column(
+      children: [
+        Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: 3),
+          ),
+          child: Center(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: color,
+              ),
+            ),
+          ),
         ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _statusBadge(String status, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Status',
+            style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.w500),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 4),
+          Text(
+            status,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _domainScoreCard(
+    String label,
+    double value,
+    Color color, {
+    required double childAvgAccuracy,
+    double? parentSupport,
+  }) {
+    String status;
+    if (value >= 75) {
+      status = 'Strong';
+    } else if (value >= 50) {
+      status = 'Developing';
+    } else {
+      status = 'Needs More Practice';
+    }
+
+    Color statusColor;
+    switch (status) {
+      case 'Strong':
+        statusColor = Colors.green;
+        break;
+      case 'Developing':
+        statusColor = Colors.orange;
+        break;
+      default:
+        statusColor = Colors.red;
+    }
+
+    // Check if there's a discrepancy between child accuracy and overall score
+    final bool hasParentDiscrepancy = parentSupport != null && 
+        childAvgAccuracy >= 70 && 
+        value < 60;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.2)),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(_iconForDomain(label), color: color, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+                    ),
+                    if (childAvgAccuracy > 0)
+                      Text(
+                        'Child activity accuracy: ${childAvgAccuracy.toStringAsFixed(0)}%',
+                        style: const TextStyle(fontSize: 11, color: Colors.black54),
+                      ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '${value.toStringAsFixed(0)}%',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      status,
+                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: statusColor),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          if (hasParentDiscrepancy) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Assessment activity performance was strong. Parent questionnaire responses suggest additional observation or practice may be helpful.',
+                      style: TextStyle(fontSize: 11, color: Colors.blue.shade700, height: 1.3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          LinearProgressIndicator(
+            value: (value / 100).clamp(0.0, 1.0),
+            minHeight: 6,
+            color: color,
+            backgroundColor: Colors.grey.shade200,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollapsibleActivityDetails(Map<String, dynamic> activityLevelDetails, Map<String, String> skillLabels) {
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+    final Map<String, dynamic> domainSummaries =
+        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
+
+    if (activityDetails.isEmpty) {
+      return const Text('No activity details available.', style: TextStyle(color: Colors.black54));
+    }
+
+    // Group activities by domain
+    final Map<String, List<Map<String, dynamic>>> domainActivities = {};
+    for (final activity in activityDetails) {
+      final String domain = activity['domain'] as String;
+      domainActivities.putIfAbsent(domain, () => []).add(activity);
+    }
+
+    final List<Widget> domainWidgets = <Widget>[];
+    final List<String> domainOrder = ['reading_language', 'writing_tracing', 'math', 'attention', 'memory', 'listening'];
+
+    for (final domain in domainOrder) {
+      if (!domainActivities.containsKey(domain)) continue;
+      final activities = domainActivities[domain]!;
+      final domainSummary = domainSummaries[domain] as Map<String, dynamic>? ?? {};
+      final String domainLabel = skillLabels[domain] ?? domain;
+      final Color domainColor = _colorForSkill(domain);
+
+      domainWidgets.add(_CollapsibleDomainActivityCard(
+        domain: domain,
+        domainLabel: domainLabel,
+        activities: activities,
+        domainSummary: domainSummary,
+        domainColor: domainColor,
+      ));
+      domainWidgets.add(const SizedBox(height: 10));
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Tap a domain to see activity-level details. Level = difficulty reached; Accuracy = performance at that level.',
+          style: TextStyle(fontSize: 12, color: Colors.black54, fontStyle: FontStyle.italic),
+        ),
+        const SizedBox(height: 12),
+        ...domainWidgets,
+      ],
+    );
+  }
+
+  Widget _buildParentObservationsCompact(Map<String, dynamic> parentQuestionnaire) {
+    final Map<String, dynamic> domainSupportScores =
+        (parentQuestionnaire['domainSupportScores'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final int answeredQuestions = _asInt(parentQuestionnaire['answeredQuestions']);
+    final double overallSupport = _asDouble(parentQuestionnaire['overallSupport']);
+
+    final List<String> domainOrder = ['reading', 'writing', 'math', 'attention', 'listening', 'memory'];
+    final Map<String, String> domainLabels = {
+      'reading': 'Reading & Language',
+      'writing': 'Writing & Tracing',
+      'math': 'Math & Number Sense',
+      'attention': 'Attention & Focus',
+      'listening': 'Listening',
+      'memory': 'Memory & Matching',
+    };
+
+    // Simple overall summary label
+    String overallSummary;
+    if (overallSupport >= 75) {
+      overallSummary = 'Parent questionnaire indicates low concern overall';
+    } else if (overallSupport >= 50) {
+      overallSummary = 'Parent questionnaire suggests some areas may need attention';
+    } else {
+      overallSummary = 'Parent questionnaire indicates notable concerns in several areas';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Based on $answeredQuestions questionnaire responses. Parent input contributes 28% to overall score.',
+          style: const TextStyle(color: Colors.black87, fontSize: 13),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          overallSummary,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1A2B47)),
+        ),
+        const SizedBox(height: 12),
+        ...domainOrder.map((domain) {
+          final double support = (domainSupportScores[domain] as num?)?.toDouble() ?? 100;
+          String observation;
+          Color obsColor;
+          if (support >= 75) {
+            observation = 'Relatively stronger';
+            obsColor = Colors.green;
+          } else if (support >= 50) {
+            observation = 'Some support may help';
+            obsColor = Colors.orange;
+          } else {
+            observation = 'Further observation recommended';
+            obsColor = Colors.blue;
+          }
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: support >= 75 ? Colors.green : (support >= 50 ? Colors.orange : Colors.blue),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Text('${domainLabels[domain] ?? domain}: ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                Text(
+                  observation,
+                  style: TextStyle(fontSize: 13, color: obsColor),
+                ),
+              ],
+            ),
+          );
+        }),
+      ],
+    );
+  }
+
+  Widget _recommendationCard(String text) {
+    final lines = text.split('\n');
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.teal.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.teal.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: lines.map((line) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty) return const SizedBox.shrink();
+          if (trimmed.startsWith('•') || trimmed.startsWith('-')) {
+            return Padding(
+              padding: const EdgeInsets.only(left: 8, top: 2, bottom: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('• ', style: TextStyle(fontSize: 13, color: Colors.teal)),
+                  Expanded(child: Text(trimmed.substring(1).trim(), style: const TextStyle(fontSize: 13, height: 1.4))),
+                ],
+              ),
+            );
+          } else if (trimmed.contains(':') && !trimmed.contains('•')) {
+            return Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 4),
+              child: Text(
+                trimmed,
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+              ),
+            );
+          } else {
+            return Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 2),
+              child: Text(trimmed, style: const TextStyle(fontSize: 13, height: 1.4)),
+            );
+          }
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _disclaimerCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.gavel, color: Colors.grey, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Important',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'This report is based on a gamified assessment and parent questionnaire from a single session. Results may vary based on engagement, fatigue, and environment. This is for educational support only, not a medical diagnosis. For concerns, consult a qualified professional.',
+            style: TextStyle(fontSize: 11, color: Colors.black54, height: 1.5),
+          ),
+        ],
       ),
     );
   }
@@ -341,39 +860,16 @@ class _ReportScreenState extends State<ReportScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+        boxShadow: <BoxShadow>[
+          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8, offset: const Offset(0, 2)),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47))),
           const SizedBox(height: 12),
           child,
-        ],
-      ),
-    );
-  }
-
-  Widget _scoreBar(String label, double value, Color color) {
-    final double progress = (value / 100).clamp(0.0, 1.0).toDouble();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        children: <Widget>[
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
-              Text('${value.toStringAsFixed(0)}%'),
-            ],
-          ),
-          const SizedBox(height: 6),
-          LinearProgressIndicator(
-            value: progress,
-            minHeight: 8,
-            color: color,
-            backgroundColor: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(12),
-          ),
         ],
       ),
     );
@@ -390,23 +886,26 @@ class _ReportScreenState extends State<ReportScreen> {
             child: CircleAvatar(radius: 4, backgroundColor: dotColor),
           ),
           const SizedBox(width: 10),
-          Expanded(child: Text(text)),
+          Expanded(child: Text(text, style: const TextStyle(fontSize: 13, height: 1.4))),
         ],
       ),
     );
   }
 
-  Widget _activityChip(String text) {
+  Widget _chip(String text) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F6FF),
+        color: const Color(0xFFEFF5FF),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFDEE6FF)),
       ),
       child: Text(
         text,
-        style: const TextStyle(fontSize: 12, color: Color(0xFF31477A)),
+        style: const TextStyle(
+          color: Color(0xFF275DAD),
+          fontWeight: FontWeight.w600,
+          fontSize: 11,
+        ),
       ),
     );
   }
@@ -449,7 +948,7 @@ class _ReportScreenState extends State<ReportScreen> {
     if (k.contains('listen')) {
       return Colors.indigo;
     }
-    if (k.contains('writing')) {
+    if (k.contains('writing') || k.contains('tracing')) {
       return Colors.green;
     }
     if (k.contains('memory')) {
@@ -458,10 +957,21 @@ class _ReportScreenState extends State<ReportScreen> {
     if (k.contains('attention')) {
       return Colors.orange;
     }
-    if (k.contains('reading')) {
+    if (k.contains('reading') || k.contains('language')) {
       return Colors.blue;
     }
     return Colors.blueGrey;
+  }
+
+  IconData _iconForDomain(String label) {
+    final String lower = label.toLowerCase();
+    if (lower.contains('reading') || lower.contains('language')) return Icons.menu_book;
+    if (lower.contains('writing') || lower.contains('tracing')) return Icons.edit;
+    if (lower.contains('math') || lower.contains('number')) return Icons.calculate;
+    if (lower.contains('attention') || lower.contains('focus')) return Icons.center_focus_strong;
+    if (lower.contains('memory') || lower.contains('match')) return Icons.psychology;
+    if (lower.contains('listen')) return Icons.hearing;
+    return Icons.category;
   }
 
   double _readScore(Map<String, dynamic> scores, String key) {
@@ -484,5 +994,274 @@ class _ReportScreenState extends State<ReportScreen> {
       return value.toInt();
     }
     return 0;
+  }
+}
+
+class _CollapsibleDomainActivityCard extends StatefulWidget {
+  final String domain;
+  final String domainLabel;
+  final List<Map<String, dynamic>> activities;
+  final Map<String, dynamic> domainSummary;
+  final Color domainColor;
+
+  const _CollapsibleDomainActivityCard({
+    required this.domain,
+    required this.domainLabel,
+    required this.activities,
+    required this.domainSummary,
+    required this.domainColor,
+  });
+
+  @override
+  State<_CollapsibleDomainActivityCard> createState() => _CollapsibleDomainActivityCardState();
+}
+
+class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivityCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final double avgAccuracy = (widget.domainSummary['averageAccuracy'] as num?)?.toDouble() ?? 0.0;
+    final int maxLevel = (widget.domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
+    final int activitiesAtLevel3 = (widget.domainSummary['activitiesAtLevel3'] as num?)?.toInt() ?? 0;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: widget.domainColor.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: widget.domainColor.withValues(alpha: 0.1),
+                borderRadius: _expanded
+                    ? const BorderRadius.only(
+                        topLeft: Radius.circular(12),
+                        topRight: Radius.circular(12),
+                      )
+                    : BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: widget.domainColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(_iconForDomain(widget.domainLabel), color: Colors.white, size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.domainLabel,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: widget.domainColor,
+                          ),
+                        ),
+                        Text(
+                          'Avg Accuracy: ${avgAccuracy.toStringAsFixed(0)}%  •  Max Level: $maxLevel  •  Level 3: $activitiesAtLevel3/${widget.activities.length}',
+                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _levelBadge(maxLevel, widget.domainColor),
+                  const SizedBox(width: 8),
+                  Icon(
+                    _expanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.black54,
+                    size: 24,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_expanded)
+            ...widget.activities.map((activity) => _compactActivityRow(activity, widget.domainColor)),
+        ],
+      ),
+    );
+  }
+
+  Widget _levelBadge(int level, Color color) {
+    Color badgeColor;
+    switch (level) {
+      case 3:
+        badgeColor = Colors.green;
+        break;
+      case 2:
+        badgeColor = Colors.orange;
+        break;
+      default:
+        badgeColor = Colors.blueGrey;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'Level $level',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _compactActivityRow(Map<String, dynamic> activity, Color domainColor) {
+    final String name = activity['activityName'] as String;
+    final String skill = activity['targetSkill'] as String;
+    final int selectedLevel = activity['selectedLevel'] as int;
+    final int unlockedLevel = activity['unlockedLevel'] as int;
+    final double accuracy = activity['accuracy'] as double;
+    final int attempts = activity['attempts'] as int;
+    final int hints = activity['hintsUsed'] as int;
+    final String performance = activity['performanceLevel'] as String;
+
+    Color perfColor;
+    String perfText;
+    switch (performance) {
+      case 'Proficient':
+        perfColor = Colors.green;
+        perfText = 'Strong';
+        break;
+      case 'Developing':
+        perfColor = Colors.orange;
+        perfText = 'Developing';
+        break;
+      default:
+        perfColor = Colors.red;
+        perfText = 'Needs Practice';
+    }
+
+    // Handle 0 attempts - show as "Not assessed" instead of 0%
+    final bool notAssessed = attempts == 0;
+    final String accuracyText = notAssessed ? 'Not assessed' : '${accuracy.toStringAsFixed(0)}%';
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text(skill, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: perfColor.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'L$selectedLevel • $perfText',
+                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: perfColor),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      accuracyText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: notAssessed ? Colors.grey : perfColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _activityDetailChip('L$selectedLevel', Icons.layers, domainColor),
+              const SizedBox(width: 8),
+              _activityDetailChip('$attempts attempts', Icons.replay, Colors.blueGrey),
+              const SizedBox(width: 8),
+              _activityDetailChip('$hints hints', Icons.lightbulb_outline, Colors.amber.shade700),
+              const SizedBox(width: 8),
+              _activityDetailChip('Unlocked: L$unlockedLevel', Icons.lock_open, Colors.grey),
+            ],
+          ),
+          if (!notAssessed) ...[
+            const SizedBox(height: 6),
+            LinearProgressIndicator(
+              value: (accuracy / 100).clamp(0.0, 1.0),
+              minHeight: 4,
+              color: perfColor,
+              backgroundColor: Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _activityDetailChip(String label, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w500, color: color),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData _iconForDomain(String label) {
+    final String lower = label.toLowerCase();
+    if (lower.contains('reading') || lower.contains('language')) return Icons.menu_book;
+    if (lower.contains('writing') || lower.contains('tracing')) return Icons.edit;
+    if (lower.contains('math') || lower.contains('number')) return Icons.calculate;
+    if (lower.contains('attention') || lower.contains('focus')) return Icons.center_focus_strong;
+    if (lower.contains('memory') || lower.contains('match')) return Icons.psychology;
+    if (lower.contains('listen')) return Icons.hearing;
+    return Icons.category;
   }
 }

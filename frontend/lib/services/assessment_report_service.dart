@@ -8,7 +8,7 @@ import 'email_webhook_service.dart';
 
 class AssessmentReportService {
   static const String _reportsCollection = 'assessment_reports';
-  static const String _modelVersion = 'v1.0.0';
+  static const String _modelVersion = 'v1.2.0';
 
   static Future<String> createAssessmentReport({
     required String assessmentType,
@@ -75,14 +75,38 @@ class AssessmentReportService {
     };
 
     final List<String> orderedSkillKeys = normalizedSkills.keys.toList();
+
+    // Build detailed activity-level performance data
+    final Map<String, dynamic> activityLevelDetails = _buildActivityLevelDetails(
+      rawMetrics: rawMetrics,
+      skillLabels: skillLabels,
+    );
+
     final List<String> insights = _buildInsights(
       normalizedSkills: normalizedSkills,
       skillLabels: skillLabels,
+      activityLevelDetails: activityLevelDetails,
+      parentSignals: parentSignals,
     );
     final List<String> recommendations = _buildRecommendations(
       normalizedSkills: normalizedSkills,
       skillLabels: skillLabels,
+      activityLevelDetails: activityLevelDetails,
+      parentSignals: parentSignals,
     );
+
+    // Build strengths and areas needing support
+    final List<String> strengths = _buildStrengths(
+      normalizedSkills: normalizedSkills,
+      skillLabels: skillLabels,
+      activityLevelDetails: activityLevelDetails,
+    );
+    final List<String> areasNeedingSupport = _buildAreasNeedingSupport(
+      normalizedSkills: normalizedSkills,
+      skillLabels: skillLabels,
+      activityLevelDetails: activityLevelDetails,
+    );
+
     if (parentSignals.available) {
       if (parentSignals.overallRisk >= 65) {
         insights.add(
@@ -99,6 +123,13 @@ class AssessmentReportService {
       }
     }
 
+    // Build domain support indicators (replaces disorder risk indicators)
+    final Map<String, dynamic> domainSupportIndicators = _buildDomainSupportIndicators(
+      normalizedSkills: normalizedSkills,
+      activityLevelDetails: activityLevelDetails,
+      parentSignals: parentSignals,
+    );
+
     final Map<String, dynamic> payload = <String, dynamic>{
       'userId': user.id,
       'parentName': user.fullName,
@@ -114,7 +145,11 @@ class AssessmentReportService {
       'statusLabel': _statusForOverall(overall),
       'insights': insights,
       'recommendations': recommendations,
+      'strengths': strengths,
+      'areasNeedingSupport': areasNeedingSupport,
       'rawMetrics': rawMetrics,
+      'activityLevelDetails': activityLevelDetails,
+      'domainSupportIndicators': domainSupportIndicators,
       'accuracyMeta': <String, dynamic>{
         'completionRate': completionRate,
         'measuredCoverage': measuredCoverage,
@@ -163,7 +198,11 @@ class AssessmentReportService {
       'statusLabel': _statusForOverall(overall),
       'insights': insights,
       'recommendations': recommendations,
+      'strengths': strengths,
+      'areasNeedingSupport': areasNeedingSupport,
       'rawMetrics': rawMetrics,
+      'activityLevelDetails': activityLevelDetails,
+      'domainSupportIndicators': domainSupportIndicators,
       'parentQuestionnaire': <String, dynamic>{
         'available': parentSignals.available,
         'overallRisk': parentSignals.overallRisk,
@@ -208,22 +247,447 @@ class AssessmentReportService {
     return 'High Support Needed';
   }
 
-  static List<String> _buildInsights({
+  static List<String> _buildStrengths({
     required Map<String, double> normalizedSkills,
     required Map<String, String> skillLabels,
+    required Map<String, dynamic> activityLevelDetails,
   }) {
-    final List<String> insights = <String>[];
+    final List<String> strengths = <String>[];
+    final Map<String, dynamic> domainSummaries =
+        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+    // Find domains with strong performance (overall normalized score >= 75)
     for (final MapEntry<String, double> entry in normalizedSkills.entries) {
       final String key = entry.key;
       final String label = skillLabels[key] ?? key;
       final double value = _asPercent(entry.value);
+      final Map<String, dynamic> domainSummary =
+          (domainSummaries[key] as Map<String, dynamic>? ?? <String, dynamic>{});
+      final int maxLevel = (domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
+      final double avgAcc = (domainSummary['averageAccuracy'] as num?)?.toDouble() ?? 0.0;
+
       if (value >= 75) {
-        insights.add('Shows strong $label skills in this assessment.');
-      } else if (value >= 50) {
-        insights.add('Shows developing $label skills with room to improve.');
-      } else {
-        insights.add('Needs targeted support in $label activities.');
+        strengths.add('$label — Strong performance (${value.toStringAsFixed(0)}% overall). Reached Level $maxLevel with ${avgAcc.toStringAsFixed(0)}% average accuracy. This skill area is well-developed.');
       }
+    }
+
+    // Find activities where child reached highest level AND performed well (accuracy >= 80)
+    final List<Map<String, dynamic>> level3Proficient = activityDetails
+        .where((a) => (a['selectedLevel'] as int) == 3 && (a['accuracy'] as double) >= 80)
+        .toList();
+    if (level3Proficient.isNotEmpty) {
+      final String activityNames = level3Proficient.map((a) => a['activityName'] as String).join(', ');
+      strengths.add('Completed advanced levels with high accuracy in: $activityNames.');
+    }
+
+    // Find activities with consistent strong performance (accuracy >= 85, attempts <= 2)
+    final List<Map<String, dynamic>> consistentStrong = activityDetails
+        .where((a) => (a['accuracy'] as double) >= 85 && (a['attempts'] as int) <= 2)
+        .toList();
+    if (consistentStrong.isNotEmpty) {
+      final String activityNames = consistentStrong.map((a) => a['activityName'] as String).join(', ');
+      strengths.add('Consistent accuracy: $activityNames — completed with minimal attempts and high precision.');
+    }
+
+    // Low hint usage as a strength
+    final int totalHints = activityDetails.fold<int>(0, (accumulator, a) => accumulator + ((a['hintsUsed'] as num?)?.toInt() ?? 0));
+    if (totalHints <= 3 && activityDetails.isNotEmpty) {
+      strengths.add('Independent problem-solving: Used very few hints ($totalHints total) across activities — shows confidence and self-reliance.');
+    }
+
+    // Limit to max 4 strengths
+    if (strengths.length > 4) {
+      return strengths.take(4).toList();
+    }
+
+    if (strengths.isEmpty) {
+      strengths.add('The assessment provides a baseline for tracking progress over time. Continued engagement will help identify emerging strengths.');
+    }
+
+    return strengths;
+  }
+
+  static List<String> _buildAreasNeedingSupport({
+    required Map<String, double> normalizedSkills,
+    required Map<String, String> skillLabels,
+    required Map<String, dynamic> activityLevelDetails,
+  }) {
+    final List<String> areas = <String>[];
+    final Map<String, dynamic> domainSummaries =
+        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+    // Find domains with weaker performance
+    for (final MapEntry<String, double> entry in normalizedSkills.entries) {
+      final String key = entry.key;
+      final String label = skillLabels[key] ?? key;
+      final double value = _asPercent(entry.value);
+      final Map<String, dynamic> domainSummary =
+          (domainSummaries[key] as Map<String, dynamic>? ?? <String, dynamic>{});
+      final int maxLevel = (domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
+      final double avgAcc = (domainSummary['averageAccuracy'] as num?)?.toDouble() ?? 0.0;
+
+      if (value < 50) {
+        areas.add('$label — Needs more practice (${value.toStringAsFixed(0)}% overall). Max level reached: $maxLevel. Average accuracy: ${avgAcc.toStringAsFixed(0)}%. Consider more guided practice in this area.');
+      } else if (value < 65) {
+        areas.add('$label — Developing (${value.toStringAsFixed(0)}% overall). Max level reached: $maxLevel. Average accuracy: ${avgAcc.toStringAsFixed(0)}%. Targeted practice may help strengthen this area.');
+      }
+    }
+
+    // Find activities with low accuracy (but only if attempted)
+    final List<Map<String, dynamic>> weakActivities = activityDetails
+        .where((a) => (a['attempts'] as int) > 0 && (a['accuracy'] as double) < 50)
+        .toList();
+    if (weakActivities.isNotEmpty) {
+      final String activityNames = weakActivities.map((a) => a['activityName'] as String).join(', ');
+      areas.add('Specific activities needing attention: $activityNames — consider revisiting these at a lower level with guided support.');
+    }
+
+    // Find activities where performance dropped at higher levels
+    final List<Map<String, dynamic>> levelDrops = activityDetails
+        .where((a) => (a['selectedLevel'] as int) >= 2 && (a['accuracy'] as double) < 60)
+        .toList();
+    if (levelDrops.isNotEmpty) {
+      final String activityNames = levelDrops.map((a) => a['activityName'] as String).join(', ');
+      areas.add('Difficulty with increased complexity: $activityNames — performance decreased as task difficulty increased. More practice at lower levels recommended before advancing.');
+    }
+
+    // High hint usage
+    final int totalHints = activityDetails.fold<int>(0, (accumulator, a) => accumulator + ((a['hintsUsed'] as num?)?.toInt() ?? 0));
+    if (totalHints > 8) {
+      areas.add('Frequent hint usage ($totalHints hints total) — child may benefit from more scaffolded instruction and confidence-building activities.');
+    }
+
+    // High attempts with low accuracy
+    final List<Map<String, dynamic>> highAttemptsLowAccuracy = activityDetails
+        .where((a) => (a['attempts'] as int) > 5 && (a['accuracy'] as double) < 70)
+        .toList();
+    if (highAttemptsLowAccuracy.isNotEmpty) {
+      final String activityNames = highAttemptsLowAccuracy.map((a) => a['activityName'] as String).join(', ');
+      areas.add('Repeated attempts with inconsistent results: $activityNames — consider breaking tasks into smaller steps with more guidance.');
+    }
+
+    // Limit to max 5 areas
+    if (areas.length > 5) {
+      return areas.take(5).toList();
+    }
+
+    if (areas.isEmpty) {
+      areas.add('No significant areas of concern identified. Continue regular learning activities and monitor progress.');
+    }
+
+    return areas;
+  }
+
+  static Map<String, dynamic> _buildDomainSupportIndicators({
+    required Map<String, double> normalizedSkills,
+    required Map<String, dynamic> activityLevelDetails,
+    required ParentQuestionnaireSignals parentSignals,
+  }) {
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+    final Map<String, dynamic> indicators = <String, dynamic>{};
+
+    final List<Map<String, dynamic>> domainConfigs = [
+      {
+        'key': 'reading_language',
+        'label': 'Reading & Language',
+        'activities': ['rhyme', 'image', 'reading'],
+        'skills': ['Phonological Awareness', 'Letter-Sound Association', 'Reading Fluency'],
+      },
+      {
+        'key': 'writing_tracing',
+        'label': 'Writing & Tracing',
+        'activities': ['builder', 'tracing', 'sorter'],
+        'skills': ['Letter Construction', 'Fine Motor & Tracing', 'Alphabetical Sequencing'],
+      },
+      {
+        'key': 'math',
+        'label': 'Math & Number Sense',
+        'activities': ['numbers', 'animals'],
+        'skills': ['Number Representation', 'Counting & Quantity'],
+      },
+      {
+        'key': 'attention',
+        'label': 'Attention & Focus',
+        'activities': ['dice', 'shapes'],
+        'skills': ['Sequencing & Focus', 'Visual Discrimination'],
+      },
+      {
+        'key': 'memory',
+        'label': 'Memory & Matching',
+        'activities': ['matching'],
+        'skills': ['Visual Memory & Matching'],
+      },
+      {
+        'key': 'listening',
+        'label': 'Listening',
+        'activities': ['audio'],
+        'skills': ['Auditory Discrimination'],
+      },
+    ];
+
+    for (final config in domainConfigs) {
+      final String key = config['key'] as String;
+      final String label = config['label'] as String;
+      final List<String> activityIds = config['activities'] as List<String>;
+      final List<String> skills = config['skills'] as List<String>;
+
+      final double domainScore = normalizedSkills[key] ?? 100;
+      final List<Map<String, dynamic>> domainActivities = activityDetails
+          .where((a) => activityIds.contains(a['activityId']))
+          .toList();
+
+      final double avgAccuracy = domainActivities.isEmpty
+          ? 100
+          : domainActivities.map((a) => a['accuracy'] as double).reduce((a, b) => a + b) / domainActivities.length;
+      final int maxLevel = domainActivities.isEmpty
+          ? 1
+          : domainActivities.map((a) => a['selectedLevel'] as int).reduce(math.max);
+      final int level3Count = domainActivities.where((a) => (a['selectedLevel'] as int) == 3).length;
+
+      String supportLevel;
+      if (domainScore >= 75) {
+        supportLevel = 'On Track';
+      } else if (domainScore >= 50) {
+        supportLevel = 'Developing';
+      } else {
+        supportLevel = 'Needs Support';
+      }
+
+      String supportColorKey;
+      switch (supportLevel) {
+        case 'Needs Support':
+          supportColorKey = 'red';
+          break;
+        case 'Developing':
+          supportColorKey = 'orange';
+          break;
+        default:
+          supportColorKey = 'green';
+      }
+
+      final List<String> observations = <String>[];
+      if (domainScore < 60) {
+        observations.add('Below-average domain score (${domainScore.toStringAsFixed(0)}%)');
+      }
+      if (avgAccuracy < 60) {
+        observations.add('Low accuracy in activities (${avgAccuracy.toStringAsFixed(0)}%)');
+      }
+      if (level3Count == 0 && domainActivities.isNotEmpty) {
+        observations.add('Did not reach Level 3 in any activity');
+      }
+      if (maxLevel < 2 && domainActivities.isNotEmpty) {
+        observations.add('Maximum level reached: $maxLevel');
+      }
+
+      // Parent questionnaire alignment
+      if (parentSignals.available) {
+        final Map<String, double> parentSupport = parentSignals.domainSupportScores;
+        String parentDomainKey = key;
+        if (key == 'reading_language') parentDomainKey = 'reading';
+        if (key == 'writing_tracing') parentDomainKey = 'writing';
+        final double parentSupportScore = parentSupport[parentDomainKey] ?? 100;
+        if (parentSupportScore < 60 && domainScore < 60) {
+          observations.add('Parent questionnaire also indicates support needed in this area');
+        }
+      }
+
+      indicators[key] = {
+        'label': label,
+        'skills': skills,
+        'domainScore': _clampPercent(domainScore),
+        'averageAccuracy': _clampPercent(avgAccuracy),
+        'maxLevelReached': maxLevel,
+        'activitiesAtLevel3': level3Count,
+        'totalActivities': domainActivities.length,
+        'supportLevel': supportLevel,
+        'supportColorKey': supportColorKey,
+        'observations': observations,
+        'parentSupportScore': parentSignals.available 
+            ? _clampPercent(parentSignals.domainSupportScores[key == 'reading_language' ? 'reading' : key == 'writing_tracing' ? 'writing' : key] ?? 100)
+            : 0,
+        'activities': domainActivities.map((a) => {
+          'activityName': a['activityName'],
+          'targetSkill': a['targetSkill'],
+          'selectedLevel': a['selectedLevel'],
+          'accuracy': a['accuracy'],
+          'performanceLevel': a['performanceLevel'],
+        }).toList(),
+      };
+    }
+
+    return indicators;
+  }
+
+  static Map<String, dynamic> _buildActivityLevelDetails({
+    required Map<String, dynamic> rawMetrics,
+    required Map<String, String> skillLabels,
+  }) {
+    final Map<String, dynamic> adaptiveLearning =
+        (rawMetrics['adaptiveLearning'] as Map<String, dynamic>? ?? <String, dynamic>{});
+
+    final Map<String, dynamic> selectedLevels =
+        (adaptiveLearning['selectedLevels'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> unlockedLevels =
+        (adaptiveLearning['unlockedLevels'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> accuracy =
+        (adaptiveLearning['accuracy'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> attempts =
+        (adaptiveLearning['attempts'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> hintsUsed =
+        (adaptiveLearning['hintsUsed'] as Map<String, dynamic>? ?? <String, dynamic>{});
+
+    // Map activity IDs to their domain and display names
+    final Map<String, Map<String, String>> activityInfo = {
+      'rhyme': {'domain': 'reading_language', 'name': 'Rhyme-Time Pop', 'skill': 'Phonological Awareness'},
+      'builder': {'domain': 'writing_tracing', 'name': 'Letter Builder', 'skill': 'Letter Construction'},
+      'image': {'domain': 'reading_language', 'name': 'Image-to-Word Snap', 'skill': 'Letter-Sound Association'},
+      'tracing': {'domain': 'writing_tracing', 'name': 'Tracing Practice', 'skill': 'Fine Motor & Tracing'},
+      'numbers': {'domain': 'math', 'name': 'Visual-to-Symbol Table', 'skill': 'Number Representation'},
+      'animals': {'domain': 'math', 'name': 'Animal Counting Corral', 'skill': 'Counting & Quantity'},
+      'dice': {'domain': 'attention', 'name': 'Dice Path Sequencing', 'skill': 'Sequencing & Focus'},
+      'shapes': {'domain': 'attention', 'name': 'Geometric Shape Detective', 'skill': 'Visual Discrimination'},
+      'sorter': {'domain': 'writing_tracing', 'name': 'Letter Sorter', 'skill': 'Alphabetical Sequencing'},
+      'audio': {'domain': 'listening', 'name': 'Audio Explorer', 'skill': 'Auditory Discrimination'},
+      'matching': {'domain': 'memory', 'name': 'Match-Up Forest', 'skill': 'Visual Memory & Matching'},
+      'reading': {'domain': 'reading_language', 'name': 'Reading Rainbow', 'skill': 'Reading Fluency'},
+    };
+
+    final List<Map<String, dynamic>> activityDetails = <Map<String, dynamic>>[];
+
+    for (final MapEntry<String, Map<String, String>> entry in activityInfo.entries) {
+      final String activityId = entry.key;
+      final Map<String, String> info = entry.value;
+      final int selectedLevel = (selectedLevels[activityId] as num?)?.toInt() ?? 1;
+      final int unlockedLevel = (unlockedLevels[activityId] as num?)?.toInt() ?? 1;
+      final double activityAccuracy = (accuracy[activityId] as num?)?.toDouble() ?? 0.0;
+      final int activityAttempts = (attempts[activityId] as num?)?.toInt() ?? 0;
+      final int activityHints = (hintsUsed[activityId] as num?)?.toInt() ?? 0;
+
+      String performanceLevel;
+      if (activityAccuracy >= 80) {
+        performanceLevel = 'Proficient';
+      } else if (activityAccuracy >= 50) {
+        performanceLevel = 'Developing';
+      } else {
+        performanceLevel = 'Needs Support';
+      }
+
+      activityDetails.add({
+        'activityId': activityId,
+        'activityName': info['name'],
+        'targetSkill': info['skill'],
+        'domain': info['domain'],
+        'selectedLevel': selectedLevel,
+        'unlockedLevel': unlockedLevel,
+        'accuracy': _clampPercent(activityAccuracy),
+        'attempts': activityAttempts,
+        'hintsUsed': activityHints,
+        'performanceLevel': performanceLevel,
+        'domainLabel': skillLabels[info['domain']] ?? info['domain'],
+      });
+    }
+
+    // Group by domain
+    final Map<String, List<Map<String, dynamic>>> domainActivities = <String, List<Map<String, dynamic>>>{};
+    for (final detail in activityDetails) {
+      final String domain = detail['domain'] as String;
+      domainActivities.putIfAbsent(domain, () => <Map<String, dynamic>>[]).add(detail);
+    }
+
+    // Compute domain-level summaries
+    final Map<String, Map<String, dynamic>> domainSummaries = <String, Map<String, dynamic>>{};
+    for (final MapEntry<String, List<Map<String, dynamic>>> domainEntry in domainActivities.entries) {
+      final String domain = domainEntry.key;
+      final List<Map<String, dynamic>> activities = domainEntry.value;
+      final double avgAccuracy = activities.isEmpty
+          ? 0
+          : activities.map((a) => a['accuracy'] as double).reduce((a, b) => a + b) / activities.length;
+      final int maxLevel = activities.map((a) => a['selectedLevel'] as int).reduce(math.max);
+      final int activitiesAtLevel3 = activities.where((a) => a['selectedLevel'] as int == 3).length;
+
+      domainSummaries[domain] = {
+        'domainLabel': skillLabels[domain] ?? domain,
+        'averageAccuracy': _clampPercent(avgAccuracy),
+        'maxLevelReached': maxLevel,
+        'activitiesAtLevel3': activitiesAtLevel3,
+        'totalActivities': activities.length,
+        'activities': activities,
+      };
+    }
+
+    return {
+      'activityDetails': activityDetails,
+      'domainSummaries': domainSummaries,
+    };
+  }
+
+  static List<String> _buildInsights({
+    required Map<String, double> normalizedSkills,
+    required Map<String, String> skillLabels,
+    required Map<String, dynamic> activityLevelDetails,
+    required ParentQuestionnaireSignals parentSignals,
+  }) {
+    final List<String> insights = <String>[];
+    final Map<String, dynamic> domainSummaries =
+        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+    // Overall domain insights - cleaner wording without percentage repetition
+    for (final MapEntry<String, double> entry in normalizedSkills.entries) {
+      final String key = entry.key;
+      final String label = skillLabels[key] ?? key;
+      final double value = _asPercent(entry.value);
+      final Map<String, dynamic> domainSummary =
+          (domainSummaries[key] as Map<String, dynamic>? ?? <String, dynamic>{});
+      final int maxLevel = (domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
+      final double avgAcc = (domainSummary['averageAccuracy'] as num?)?.toDouble() ?? 0.0;
+
+      if (value >= 75) {
+        insights.add('$label — Strong performance. Reached Level $maxLevel with ${avgAcc.toStringAsFixed(0)}% average accuracy.');
+      } else if (value >= 50) {
+        insights.add('$label — Developing skills. Reached Level $maxLevel with ${avgAcc.toStringAsFixed(0)}% average accuracy; consider targeted practice.');
+      } else {
+        insights.add('$label — Needs more practice. Max level reached: $maxLevel, average accuracy: ${avgAcc.toStringAsFixed(0)}%.');
+      }
+    }
+
+    // Activity-specific insights for areas of concern
+    final List<Map<String, dynamic>> weakActivities = activityDetails
+        .where((a) => (a['attempts'] as int) > 0 && (a['accuracy'] as double) < 50)
+        .toList();
+    if (weakActivities.isNotEmpty) {
+      final String weakNames = weakActivities.map((a) => a['activityName'] as String).join(', ');
+      insights.add('Activities needing attention: $weakNames — consider revisiting these at a lower level with guided support.');
+    }
+
+    // Level progression insights - only mention level reached, not "readiness"
+    final List<Map<String, dynamic>> level3Activities = activityDetails
+        .where((a) => (a['selectedLevel'] as int) == 3)
+        .toList();
+    if (level3Activities.isNotEmpty) {
+      final String level3Names = level3Activities.map((a) => a['activityName'] as String).join(', ');
+      insights.add('Reached Level 3 in: $level3Names.');
+    }
+
+    // Hints usage insight
+    final int totalHints = activityDetails.fold<int>(0, (accumulator, a) => accumulator + ((a['hintsUsed'] as num?)?.toInt() ?? 0));
+    if (totalHints > 8) {
+      insights.add('Frequent hint usage ($totalHints hints across activities) — child may benefit from more scaffolded instruction and confidence-building.');
     }
 
     return insights;
@@ -232,29 +696,79 @@ class AssessmentReportService {
   static List<String> _buildRecommendations({
     required Map<String, double> normalizedSkills,
     required Map<String, String> skillLabels,
+    required Map<String, dynamic> activityLevelDetails,
+    required ParentQuestionnaireSignals parentSignals,
   }) {
-    final List<MapEntry<String, double>> ranked = normalizedSkills.entries.toList()
-      ..sort((MapEntry<String, double> a, MapEntry<String, double> b) =>
-          a.value.compareTo(b.value));
-
     final List<String> actions = <String>[];
-    for (final MapEntry<String, double> item in ranked.take(3)) {
-      final String label = skillLabels[item.key] ?? item.key;
-      final String lower = label.toLowerCase();
-      if (lower.contains('reading') || lower.contains('language')) {
-        actions.add('Do 10-minute daily phonics and read-aloud sessions.');
-      } else if (lower.contains('writing') || lower.contains('motor')) {
-        actions.add('Practice tracing, letter formation, and short copying tasks.');
-      } else if (lower.contains('attention') || lower.contains('focus')) {
-        actions.add('Use short focused tasks with clear breaks and rewards.');
-      } else if (lower.contains('memory')) {
-        actions.add('Play recall and sequencing games using pictures and words.');
-      } else if (lower.contains('math') || lower.contains('number')) {
-        actions.add('Use hands-on counting and pattern games for number confidence.');
-      } else if (lower.contains('listening')) {
-        actions.add('Do short listen-and-respond games with simple verbal instructions.');
+    final Map<String, dynamic> domainSummaries =
+        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final List<Map<String, dynamic>> activityDetails =
+        (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+
+    // Sort domains by score (ascending) to prioritize weakest areas
+    final List<MapEntry<String, double>> rankedDomains = normalizedSkills.entries.toList()
+      ..sort((MapEntry<String, double> a, MapEntry<String, double> b) => a.value.compareTo(b.value));
+
+    for (final MapEntry<String, double> item in rankedDomains.take(4)) {
+      final String domain = item.key;
+      final String label = skillLabels[domain] ?? domain;
+      final double value = _asPercent(item.value);
+      final Map<String, dynamic> domainSummary = (domainSummaries[domain] as Map<String, dynamic>? ?? <String, dynamic>{});
+      final int maxLevel = (domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
+      final List<Map<String, dynamic>> activities = (domainSummary['activities'] as List<dynamic>? ?? <dynamic>[])
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
+
+      final List<Map<String, dynamic>> weakActivities = activities.where((a) => (a['accuracy'] as double) < 60).toList();
+      final String weakActivityNames = weakActivities.map((a) => a['activityName'] as String).join(', ');
+
+      if (value < 50) {
+        actions.add('$label: Needs more practice\n• Daily 10-15 min guided practice\n• Focus: ${weakActivityNames.isEmpty ? 'general domain practice' : weakActivityNames}\n• Max level reached: $maxLevel');
+      } else if (value < 70) {
+        actions.add('$label: Developing skill\n• 3-4 structured practice sessions per week\n• Focus: ${weakActivityNames.isEmpty ? 'skill consolidation' : weakActivityNames}\n• Max level reached: $maxLevel');
       } else {
-        actions.add('Continue guided practice with short daily activities in $label.');
+        final String enrichmentActivities = activities.where((a) => (a['selectedLevel'] as int) >= 2).map((a) => a['activityName']).join(', ');
+        actions.add('$label: On track\n• Maintain current progress with weekly check-ins\n• Continue enrichment: ${enrichmentActivities.isEmpty ? 'current activities' : enrichmentActivities}\n• Max level reached: $maxLevel');
+      }
+    }
+
+    // Cross-domain recommendations based on skill patterns (no diagnostic language)
+    final double readingScore = normalizedSkills['reading_language'] ?? 0;
+    final double writingScore = normalizedSkills['writing_tracing'] ?? 0;
+    final double mathScore = normalizedSkills['math'] ?? 0;
+    final double attentionScore = normalizedSkills['attention'] ?? 0;
+    final double memoryScore = normalizedSkills['memory'] ?? 0;
+
+    if (readingScore < 55 && writingScore < 55) {
+      actions.add('Reading & Writing Support\n• Multi-sensory phonics (letter-sound-tracing)\n• Decodable texts and handwriting practice\n• 4 sessions per week');
+    }
+    if (mathScore < 55) {
+      actions.add('Math Foundations\n• Concrete manipulatives for quantity\n• Number line practice and daily counting\n• Hands-on number games');
+    }
+    if (attentionScore < 55) {
+      actions.add('Attention & Focus\n• Short 2-3 min timed tasks\n• Visual schedules and movement breaks\n• Simple sequencing and sorting games');
+    }
+    if (memoryScore < 55) {
+      actions.add('Memory Support\n• Chunking strategies and visual aids\n• Repeated retrieval practice\n• Matching and sequencing games');
+    }
+
+    // Parent questionnaire alignment - educational language only
+    if (parentSignals.available) {
+      final Map<String, double> parentSupport = parentSignals.domainSupportScores;
+      final double parentReading = parentSupport['reading'] ?? 100;
+      final double parentWriting = parentSupport['writing'] ?? 100;
+      final double parentMath = parentSupport['math'] ?? 100;
+
+      if (parentReading < 60 && readingScore < 60) {
+        actions.add('Reading: Parent observations and assessment align — consider consulting a reading specialist for further evaluation.');
+      }
+      if (parentWriting < 60 && writingScore < 60) {
+        actions.add('Writing: Parent observations and assessment align — consider occupational therapy evaluation for fine motor skills.');
+      }
+      if (parentMath < 60 && mathScore < 60) {
+        actions.add('Math: Parent observations and assessment align — consider educational evaluation for number sense development.');
       }
     }
 
