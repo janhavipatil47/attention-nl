@@ -484,11 +484,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       const Offset(165, 170),
     ],
     'P': [
-      const Offset(40, 40), // Top of P
-      const Offset(40, 160), // Bottom of P
-      const Offset(40, 100), // Middle of P
-      const Offset(120, 40), // Top right of curve
-      const Offset(120, 100), // Middle right of curve
+      const Offset(40, 40), // Top of P (start of stem)
+      const Offset(40, 160), // Bottom of P (stem)
+      const Offset(40, 40), // Return to top to start the bowl
+      const Offset(120, 40), // Top right of bowl
+      const Offset(120, 100), // Middle right of bowl
+      const Offset(40, 100), // Back to mid-left to close the bowl
     ],
     'T': [
       const Offset(40, 40), // Top left
@@ -497,12 +498,13 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       const Offset(100, 160), // Bottom
     ],
     'F': [
-      const Offset(40, 40), // Top of F
-      const Offset(40, 160), // Bottom of F
-      const Offset(40, 80), // Middle
-      const Offset(120, 80), // End of middle line
-      const Offset(40, 40), // Top
-      const Offset(120, 40), // End of top line
+      const Offset(40, 40), // Top of F (start of stem)
+      const Offset(40, 160), // Bottom of F (stem)
+      const Offset(40, 40), // Return to top to draw top bar
+      const Offset(120, 40), // End of top bar
+      const Offset(40, 40), // Back to top, then move to middle
+      const Offset(40, 80), // Middle start
+      const Offset(120, 80), // End of middle bar
     ],
   };
 
@@ -604,7 +606,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   // NEW: Visual-to-Symbol Table state
   final List<Map<String, dynamic>> _numberTable = [
-    {'picture': 1, 'digits': '1', 'words': 'One', 'completed': true},
+    {'picture': 1, 'digits': '', 'words': '', 'completed': false},
     {'picture': 2, 'digits': '', 'words': '', 'completed': false},
     {'picture': 3, 'digits': '', 'words': '', 'completed': false},
     {'picture': 4, 'digits': '', 'words': '', 'completed': false},
@@ -2639,7 +2641,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         content: Wrap(
           spacing: 16,
           runSpacing: 16,
-          children: [2, 3, 4, 5]
+          children: [1, 2, 3, 4, 5]
               .map(
                 (number) => GestureDetector(
                   onTap: () {
@@ -2673,17 +2675,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _showWordPopup(int rowIndex) {
-    final correctWords = ['Two', 'Three', 'Four', 'Five'];
-    final wordOptions = [
-      correctWords[rowIndex - 1], // Correct word
-      'Seven', // Wrong option 1
-      'Ten', // Wrong option 2
-    ]..shuffle();
+    final row = _numberTable[rowIndex];
+    final String expectedWord = _numberWordFor(row['picture'] as int);
+    final wordOptions = [expectedWord, 'Seven', 'Ten']..shuffle();
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Select word for ${rowIndex + 1}'),
+        title: Text('Select word for ${row['picture']}'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: wordOptions
