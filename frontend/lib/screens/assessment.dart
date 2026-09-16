@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/questionnaire_service.dart';
 import '../services/auth_service.dart';
-import 'childAssessment.dart';
-import 'sixYearAssessment.dart';
+import 'handwriting_screening.dart';
 
 class SmartAssessmentScreen extends StatefulWidget {
   const SmartAssessmentScreen({super.key, this.userId = 'anonymous_user'});
@@ -291,19 +290,14 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                     print('DEBUG: Using childAge = $childAge');
                     print('DEBUG: childAge >= 6 = ${childAge >= 6}');
 
-                    if (childAge >= 6) {
-                      print('DEBUG: Routing to SixYearAssessmentScreen');
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const SixYearAssessmentScreen()),
-                      );
-                    } else {
-                      print('DEBUG: Routing to ChildAssessmentScreen');
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => const ChildAssessmentScreen()),
-                      );
-                    }
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => HandwritingScreeningScreen(
+                          childAge: childAge,
+                        ),
+                      ),
+                    );
                   } catch (error) {
                     if (!context.mounted) {
                       return;

@@ -1595,7 +1595,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   bool _checkLetterBuilt() {
-    if (_letterParts == null) return false;
     switch (_currentBuildLetter) {
       case 'p':
         return _letterParts.contains('vertical_line') &&
@@ -1615,7 +1614,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _giveLetterGuidance() {
-    if (_letterParts == null) return;
     switch (_currentBuildLetter) {
       case 'p':
         if (!_letterParts.contains('vertical_line')) {
@@ -2135,7 +2133,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         return Stack(
           children: [
             // Vertical line
-            if (_letterParts != null && _letterParts.contains('vertical_line'))
+            if (_letterParts.contains('vertical_line'))
               Positioned(
                 left: 40,
                 top: 20,
@@ -2149,7 +2147,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 ),
               ),
             // Right-facing bowl, joined to the stem to make P.
-            if (_letterParts != null && _letterParts.contains('semi_circle'))
+            if (_letterParts.contains('semi_circle'))
               Positioned(
                 left: 48,
                 top: 20,
@@ -2171,7 +2169,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         return Stack(
           children: [
             // Vertical line
-            if (_letterParts != null && _letterParts.contains('vertical_line'))
+            if (_letterParts.contains('vertical_line'))
               Positioned(
                 left: 40,
                 top: 20,
@@ -2185,8 +2183,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 ),
               ),
             // Horizontal line at bottom
-            if (_letterParts != null &&
-                _letterParts.contains('horizontal_line'))
+            if (_letterParts.contains('horizontal_line'))
               Positioned(
                 left: 40,
                 top: 120,
@@ -2205,7 +2202,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         return Stack(
           children: [
             // Vertical line
-            if (_letterParts != null && _letterParts.contains('vertical_line'))
+            if (_letterParts.contains('vertical_line'))
               Positioned(
                 left: 40,
                 top: 20,
@@ -2219,7 +2216,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 ),
               ),
             // Circle on the right
-            if (_letterParts != null && _letterParts.contains('circle'))
+            if (_letterParts.contains('circle'))
               Positioned(
                 left: 48,
                 top: 40,
@@ -2238,7 +2235,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         return Stack(
           children: [
             // Vertical line
-            if (_letterParts != null && _letterParts.contains('vertical_line'))
+            if (_letterParts.contains('vertical_line'))
               Positioned(
                 left: 40,
                 top: 20,
@@ -2252,7 +2249,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 ),
               ),
             // Circle on the right
-            if (_letterParts != null && _letterParts.contains('upper_circle'))
+            if (_letterParts.contains('upper_circle'))
               Positioned(
                 left: 48,
                 top: 20,
@@ -2265,7 +2262,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                   ),
                 ),
               ),
-            if (_letterParts != null && _letterParts.contains('lower_circle'))
+            if (_letterParts.contains('lower_circle'))
               Positioned(
                 left: 48,
                 top: 80,
@@ -2312,7 +2309,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           height: 80,
           decoration: BoxDecoration(
             color:
-                (_letterParts != null && _letterParts.contains('vertical_line'))
+                (_letterParts.contains('vertical_line'))
                 ? Colors.green
                 : Colors.brown,
             borderRadius: BorderRadius.circular(12),
@@ -2338,8 +2335,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
               height: 80,
               decoration: BoxDecoration(
                 color:
-                    (_letterParts != null &&
-                        _letterParts.contains('semi_circle'))
+                    (_letterParts.contains('semi_circle'))
                     ? Colors.green
                     : Colors.orange,
                 borderRadius: const BorderRadius.only(
@@ -2366,8 +2362,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
               height: 80,
               decoration: BoxDecoration(
                 color:
-                    (_letterParts != null &&
-                        _letterParts.contains('horizontal_line'))
+                    (_letterParts.contains('horizontal_line'))
                     ? Colors.green
                     : Colors.brown,
                 borderRadius: BorderRadius.circular(12),
@@ -2391,7 +2386,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
               width: 80,
               height: 80,
               decoration: BoxDecoration(
-                color: (_letterParts != null && _letterParts.contains('circle'))
+                color: (_letterParts.contains('circle'))
                     ? Colors.green
                     : Colors.orange,
                 shape: BoxShape.circle,
