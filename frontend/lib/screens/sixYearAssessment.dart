@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:math' as math;
 import '../services/assessment_report_service.dart';
+import '../services/attention_tracker_service.dart';
 import 'report.dart';
 
 class SixYearAssessmentScreen extends StatefulWidget {
@@ -25,6 +27,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   int _completedActivities = 0;
   bool _isFinalizing = false;
   final DateTime _assessmentStartedAt = DateTime.now();
+
+  StreamSubscription<AttentionState>? _attentionSubscription;
+  bool _isAlertShowing = false;
+  AttentionState _currentAttention = const AttentionState();
+  AttentionSummary? _finalAttentionSummary;
+  bool _isConnectingTracker = false;
 
   // Adaptive learning state.  A level is selected by the child/adult; earning
   // 80% unlocks the next one but never changes the selected level for them.
@@ -688,6 +696,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
     _setupTts();
     _initializeActivities();
+    _initAttentionTracking();
 
     // Start the bubble animation
     _bubbleController.repeat();
@@ -696,6 +705,240 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   void _setupTts() async {
     await _tts.setSpeechRate(0.5);
     await _tts.setVolume(1.0);
+  }
+
+  Future<void> _initAttentionTracking() async {
+    final bool ok = await AttentionTrackerService.instance.startTracking();
+    if (!ok && mounted) {
+      debugPrint('[SixYearAssessment] OpenCV tracker not currently running.');
+    }
+    _attentionSubscription = AttentionTrackerService.instance.stream.listen(
+      _handleAttentionUpdate,
+    );
+  }
+
+  Future<void> _retryStartTracker() async {
+    setState(() => _isConnectingTracker = true);
+    final bool success = await AttentionTrackerService.instance.startTracking();
+    if (mounted) {
+      setState(() => _isConnectingTracker = false);
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not connect to OpenCV tracker. Please run: python attention_tracker/server.py (or run_attention_tracker.bat).',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleAttentionUpdate(AttentionState state) {
+    if (!mounted) return;
+    setState(() {
+      _currentAttention = state;
+    });
+
+    if (state.alertNeeded && !_isAlertShowing) {
+      _showAlertPopup();
+    } else if (!state.alertNeeded && _isAlertShowing) {
+      _dismissAlertPopup();
+    }
+  }
+
+  void _dismissAlertPopup() {
+    if (_isAlertShowing && mounted) {
+      _isAlertShowing = false;
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  void _showAlertPopup() {
+    if (_isAlertShowing || !mounted) return;
+    _isAlertShowing = true;
+    _tts.stop();
+    _tts.speak('Look at the screen!');
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3CD),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFFFFC107), width: 2.5),
+                  ),
+                  child: const Center(
+                    child: Text('👀', style: TextStyle(fontSize: 42)),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Look at the Screen!',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A2B47),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Hey there! Please keep your eyes on the screen so you can complete the activity! ⭐',
+                  style: TextStyle(fontSize: 15, color: Colors.black87, height: 1.3),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 22),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    AttentionTrackerService.instance.resetAlert();
+                    _dismissAlertPopup();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E56CF),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline, size: 20),
+                  label: const Text(
+                    "I'm Looking!",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      _isAlertShowing = false;
+    });
+  }
+
+  Widget _buildTrackerStatusBanner() {
+    final bool isLive = _currentAttention.isConnected && _currentAttention.isTracking;
+
+    if (isLive) {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F5E9),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF81C784), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: const BoxDecoration(
+                color: Color(0xFF2E7D32),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.videocam, color: Colors.white, size: 16),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'OpenCV Camera Tracker: ',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B5E20),
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        'ACTIVE 🟢',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2E7D32),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Gaze: ${_currentAttention.gazeDirection}  •  Attention: ${_currentAttention.attentionPercentage.toStringAsFixed(0)}%  •  Alerts: ${_currentAttention.distractionCount}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFFB74D), width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.videocam_off, color: Color(0xFFE65100), size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'OpenCV Camera Tracker is NOT Connected',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFE65100),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _isConnectingTracker ? null : _retryStartTracker,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E56CF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Text(_isConnectingTracker ? 'Starting...' : 'Connect Camera'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'To track gaze & receive look-away alerts: run "python attention_tracker/server.py" or double-click "run_attention_tracker.bat".',
+              style: TextStyle(fontSize: 11, color: Colors.black87),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _initializeSpeechRecognition() async {
@@ -1599,6 +1842,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       _speechToText.cancel();
     }
 
+    _attentionSubscription?.cancel();
+    AttentionTrackerService.instance.stopTracking();
     _shakeController.dispose();
     _pulseController.dispose();
     _glowController.dispose();

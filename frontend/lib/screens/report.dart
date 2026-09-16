@@ -182,6 +182,29 @@ class _ReportScreenState extends State<ReportScreen> {
         _extractSkillEntries(scores, scoredSkillKeys);
     final String generatedAt = _formatCreatedAt(data['createdAt']);
 
+    // Extract Attention Tracking metrics
+    final Map<String, dynamic> rawMetrics =
+        (data['rawMetrics'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final Map<String, dynamic> attentionMetrics =
+        (data['attentionMetrics'] as Map<String, dynamic>? ?? <String, dynamic>{});
+    final double attentionPercentage = (attentionMetrics['attentionPercentage'] as num?)?.toDouble() ??
+        (scores['attentionPercentage'] as num?)?.toDouble() ??
+        (scores['attention'] as num?)?.toDouble() ??
+        (rawMetrics['attentionPercentage'] as num?)?.toDouble() ??
+        overall;
+    final double attentiveSec = (attentionMetrics['attentiveSeconds'] as num?)?.toDouble() ??
+        (rawMetrics['attentiveSeconds'] as num?)?.toDouble() ??
+        0.0;
+    final double totalSec = (attentionMetrics['totalAttentionTrackedSeconds'] as num?)?.toDouble() ??
+        (rawMetrics['totalAttentionTrackedSeconds'] as num?)?.toDouble() ??
+        (rawMetrics['sessionDurationSeconds'] as num?)?.toDouble() ??
+        0.0;
+    final int distractionCount = (attentionMetrics['distractionCount'] as num?)?.toInt() ??
+        (rawMetrics['distractionCount'] as num?)?.toInt() ??
+        0;
+    final bool openCvTracked = attentionMetrics['openCvAttentionTracked'] == true ||
+        rawMetrics['openCvAttentionTracked'] == true;
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -197,9 +220,21 @@ class _ReportScreenState extends State<ReportScreen> {
             assessmentType: assessmentType,
             statusLabel: statusLabel,
             overall: overall,
+            attentionPercentage: attentionPercentage,
+            attentionMeasured: openCvTracked && totalSec > 0,
             confidence: confidence,
             emailStatus: emailStatus,
             generatedAt: generatedAt,
+          ),
+          const SizedBox(height: 16),
+
+          // Visual Attention Tracking Card
+          _attentionTrackingCard(
+            attentionPercentage: attentionPercentage,
+            attentiveSec: attentiveSec,
+            totalSec: totalSec,
+            distractionCount: distractionCount,
+            openCvTracked: openCvTracked,
           ),
           const SizedBox(height: 16),
 
@@ -313,6 +348,8 @@ class _ReportScreenState extends State<ReportScreen> {
     required String assessmentType,
     required String statusLabel,
     required double overall,
+    required double attentionPercentage,
+    required bool attentionMeasured,
     required double confidence,
     required String emailStatus,
     required String generatedAt,
@@ -396,11 +433,21 @@ class _ReportScreenState extends State<ReportScreen> {
               Expanded(
                 child: _metricCircle('Overall Score', '${overall.toStringAsFixed(0)}%', statusColor),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _metricCircle(
+                  'Attention',
+                  attentionMeasured
+                      ? '${attentionPercentage.toStringAsFixed(0)}%'
+                      : 'Offline',
+                  attentionMeasured ? const Color(0xFF6E56CF) : Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 child: _metricCircle('Confidence', '${confidence.toStringAsFixed(0)}%', Colors.blue),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
               Expanded(
                 child: _statusBadge(statusText, statusColor),
               ),
@@ -418,6 +465,257 @@ class _ReportScreenState extends State<ReportScreen> {
               const SizedBox(width: 8),
               _chip('Email: $emailStatus'),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _attentionTrackingCard({
+    required double attentionPercentage,
+    required double attentiveSec,
+    required double totalSec,
+    required int distractionCount,
+    required bool openCvTracked,
+  }) {
+    final bool isMeasured = openCvTracked && totalSec > 0;
+
+    if (!isMeasured) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade300, width: 1.5),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.videocam_off_outlined, color: Colors.grey, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Visual Attention: Not Measured',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1A2B47),
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'The OpenCV webcam gaze tracker was not running during this assessment session. To measure the child\'s visual attention and trigger "Look at the screen" alerts, ensure the Python tracker is running before starting the assessment.',
+                    style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.3),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    Color barColor;
+    String statusTitle;
+    String statusDesc;
+    if (attentionPercentage >= 80) {
+      barColor = const Color(0xFF2E7D32);
+      statusTitle = 'High Sustained Attention';
+      statusDesc = 'The child maintained strong focus on the screen with minimal look-away distractions.';
+    } else if (attentionPercentage >= 60) {
+      barColor = const Color(0xFFF57C00);
+      statusTitle = 'Moderate Attention';
+      statusDesc = 'The child was generally attentive, with occasional gaze wandering away from the assessment.';
+    } else {
+      barColor = const Color(0xFFD32F2F);
+      statusTitle = 'Needs Focus Support';
+      statusDesc = 'The child frequently looked away from the assessment window. Shorter activity intervals and visual refocusing cues are recommended.';
+    }
+
+    final int attentiveMin = (attentiveSec / 60).floor();
+    final int attentiveRemainderSec = (attentiveSec % 60).round();
+    final String attentiveFormatted = '${attentiveMin}m ${attentiveRemainderSec}s';
+
+    final int totalMin = (totalSec / 60).floor();
+    final int totalRemainderSec = (totalSec % 60).round();
+    final String totalFormatted = '${totalMin}m ${totalRemainderSec}s';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF6E56CF).withValues(alpha: 0.25), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6E56CF).withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6E56CF).withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.remove_red_eye_rounded, color: Color(0xFF6E56CF), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Visual Attention & Gaze Tracking',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1A2B47),
+                      ),
+                    ),
+                    Text(
+                      'Monitored live via OpenCV camera gaze tracker',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: barColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: barColor.withValues(alpha: 0.4)),
+                ),
+                child: Text(
+                  '${attentionPercentage.toStringAsFixed(0)}% Attention',
+                  style: TextStyle(
+                    color: barColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: (attentionPercentage / 100).clamp(0.0, 1.0),
+              minHeight: 10,
+              backgroundColor: Colors.grey.shade200,
+              valueColor: AlwaysStoppedAnimation<Color>(barColor),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _attentionStatTile(
+                  label: 'Screen Attention',
+                  value: '${attentionPercentage.toStringAsFixed(0)}%',
+                  icon: Icons.track_changes,
+                  color: const Color(0xFF6E56CF),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _attentionStatTile(
+                  label: 'Focused Time',
+                  value: totalSec > 0 ? '$attentiveFormatted / $totalFormatted' : '${attentionPercentage.toStringAsFixed(0)}%',
+                  icon: Icons.timer_outlined,
+                  color: Colors.blue.shade700,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _attentionStatTile(
+                  label: 'Look-Away Alerts',
+                  value: '$distractionCount',
+                  icon: Icons.notifications_active_outlined,
+                  color: distractionCount > 3 ? Colors.red.shade600 : Colors.orange.shade700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9F9FB),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  attentionPercentage >= 80 ? Icons.check_circle : Icons.info_outline,
+                  color: barColor,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$statusTitle: $statusDesc',
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _attentionStatTile({
+    required String label,
+    required String value,
+    required IconData icon,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10, color: Colors.black54),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

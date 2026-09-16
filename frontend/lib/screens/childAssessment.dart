@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/assessment_report_service.dart';
+import '../services/attention_tracker_service.dart';
 import 'report.dart';
 
 const Duration _shakeDuration = Duration(milliseconds: 600);
@@ -53,6 +55,12 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   bool _isFinalizing = false;
   final DateTime _assessmentStartedAt = DateTime.now();
 
+  StreamSubscription<AttentionState>? _attentionSubscription;
+  bool _isAlertShowing = false;
+  AttentionState _currentAttention = const AttentionState();
+  AttentionSummary? _finalAttentionSummary;
+  bool _isConnectingTracker = false;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +68,133 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       ..repeat();
     _setupTts();
     _loadChildAge();
+    _initAttentionTracking();
+  }
+
+  Future<void> _initAttentionTracking() async {
+    final bool ok = await AttentionTrackerService.instance.startTracking();
+    if (!ok && mounted) {
+      debugPrint('[ChildAssessment] OpenCV tracker not currently running.');
+    }
+    _attentionSubscription = AttentionTrackerService.instance.stream.listen(
+      _handleAttentionUpdate,
+    );
+  }
+
+  Future<void> _retryStartTracker() async {
+    setState(() => _isConnectingTracker = true);
+    final bool success = await AttentionTrackerService.instance.startTracking();
+    if (mounted) {
+      setState(() => _isConnectingTracker = false);
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not connect to OpenCV tracker. Please run: python attention_tracker/server.py in terminal.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
+  void _handleAttentionUpdate(AttentionState state) {
+    if (!mounted) return;
+    setState(() {
+      _currentAttention = state;
+    });
+
+    if (state.alertNeeded && !_isAlertShowing) {
+      _showAlertPopup();
+    } else if (!state.alertNeeded && _isAlertShowing) {
+      _dismissAlertPopup();
+    }
+  }
+
+  void _dismissAlertPopup() {
+    if (_isAlertShowing && mounted) {
+      _isAlertShowing = false;
+      if (Navigator.of(context, rootNavigator: true).canPop()) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  void _showAlertPopup() {
+    if (_isAlertShowing || !mounted) return;
+    _isAlertShowing = true;
+    _speak('Look at the screen!');
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          elevation: 12,
+          backgroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3CD),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: const Color(0xFFFFC107), width: 2.5),
+                  ),
+                  child: const Center(
+                    child: Text('👀', style: TextStyle(fontSize: 42)),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Look at the Screen!',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A2B47),
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Hey there! Please keep your eyes on the screen so you don\'t miss the fun! ⭐',
+                  style: TextStyle(fontSize: 15, color: Colors.black87, height: 1.3),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 22),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    AttentionTrackerService.instance.resetAlert();
+                    _dismissAlertPopup();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E56CF),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 14),
+                  ),
+                  icon: const Icon(Icons.check_circle_outline, size: 20),
+                  label: const Text(
+                    "I'm Looking!",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((_) {
+      _isAlertShowing = false;
+    });
   }
 
   Future<void> _setupTts() async {
@@ -137,6 +272,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
 
   @override
   void dispose() {
+    _attentionSubscription?.cancel();
+    AttentionTrackerService.instance.stopTracking();
     _tts.stop();
     _shakeController.dispose();
     super.dispose();
@@ -175,6 +312,60 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
           ],
         ),
         centerTitle: true,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                decoration: BoxDecoration(
+                  color: _currentAttention.isConnected
+                      ? (_currentAttention.attentionPercentage >= 75
+                          ? const Color(0xFFE8F5E9)
+                          : const Color(0xFFFFF3E0))
+                      : Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: _currentAttention.isConnected
+                        ? (_currentAttention.attentionPercentage >= 75
+                            ? const Color(0xFF81C784)
+                            : const Color(0xFFFFB74D))
+                        : Colors.grey.shade300,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.remove_red_eye_rounded,
+                      size: 14,
+                      color: _currentAttention.isConnected
+                          ? (_currentAttention.attentionPercentage >= 75
+                              ? const Color(0xFF2E7D32)
+                              : const Color(0xFFE65100))
+                          : Colors.grey,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _currentAttention.isConnected
+                          ? '${_currentAttention.attentionPercentage.toStringAsFixed(0)}%'
+                          : 'Tracker',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: _currentAttention.isConnected
+                            ? (_currentAttention.attentionPercentage >= 75
+                                ? const Color(0xFF2E7D32)
+                                : const Color(0xFFE65100))
+                            : Colors.grey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -195,6 +386,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
             style: const TextStyle(color: Colors.black54),
           ),
           const SizedBox(height: 14),
+          _buildTrackerStatusBanner(),
+          const SizedBox(height: 8),
           _sectionCard(
             title: 'Listening Activities',
             subtitle: _isAge45
@@ -257,9 +450,123 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     );
   }
 
+  Widget _buildTrackerStatusBanner() {
+    final bool isLive = _currentAttention.isConnected && _currentAttention.isTracking;
+
+    if (isLive) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE8F5E9),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFF81C784), width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                color: Color(0xFF2E7D32),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.videocam, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text(
+                        'OpenCV Camera Tracker: ',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B5E20),
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        'ACTIVE 🟢',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2E7D32),
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Gaze: ${_currentAttention.gazeDirection}  •  Attention: ${_currentAttention.attentionPercentage.toStringAsFixed(0)}%  •  Alerts: ${_currentAttention.distractionCount}',
+                    style: const TextStyle(fontSize: 12, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF8E1),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: const Color(0xFFFFB74D), width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.videocam_off, color: Color(0xFFE65100), size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Camera Tracker is NOT Connected',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFFE65100),
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: _isConnectingTracker ? null : _retryStartTracker,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E56CF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Text(_isConnectingTracker ? 'Starting...' : 'Connect Camera'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Start tracker to track gaze & trigger look-away alerts: run "python attention_tracker/server.py" or double-click "start_tracker.bat".',
+              style: TextStyle(fontSize: 11, color: Colors.black87),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Future<void> _completeAssessment() async {
     setState(() => _isFinalizing = true);
     try {
+      // Stop OpenCV attention tracker and retrieve session metrics
+      try {
+        _finalAttentionSummary = await AttentionTrackerService.instance.stopTracking();
+      } catch (e) {
+        debugPrint('Error stopping attention tracker: $e');
+      }
+
       final Map<String, double> skillScores = _calculateDomainScores();
       final Map<String, dynamic> rawMetrics = _buildRawMetrics();
       final Map<String, String> skillLabels = <String, String>{
@@ -406,7 +713,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     ].where((bool v) => v).length;
     final double engagement = _clamp((_attemptedCount / 15) * 100);
     final double completionQuality = _clamp((fullyCompleted / 14) * 100);
-    final double attentionScore = _clamp((engagement * 0.55) + (completionQuality * 0.45));
+    final double fallbackAttention = _clamp((engagement * 0.55) + (completionQuality * 0.45));
+    final double attentionScore = (_finalAttentionSummary != null && _finalAttentionSummary!.totalSeconds > 0)
+        ? _clamp(_finalAttentionSummary!.attentionPercentage)
+        : fallbackAttention;
 
     return <String, double>{
       'listening': _clamp(listeningScore),
@@ -468,6 +778,12 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       'attemptedActivities': _attemptedCount,
       'writingWizardProgress': (_writingWizardProgress * 100).round(),
       'circleCompletionPercent': (_circleCompletionPercent * 100).round(),
+      'attentionPercentage': _finalAttentionSummary?.attentionPercentage ?? 100.0,
+      'attentiveSeconds': _finalAttentionSummary?.attentiveSeconds ?? 0.0,
+      'distractedSeconds': _finalAttentionSummary?.distractedSeconds ?? 0.0,
+      'totalAttentionTrackedSeconds': _finalAttentionSummary?.totalSeconds ?? 0.0,
+      'distractionCount': _finalAttentionSummary?.distractionCount ?? 0,
+      'openCvAttentionTracked': (_finalAttentionSummary != null && _finalAttentionSummary!.totalSeconds > 0),
     };
   }
 

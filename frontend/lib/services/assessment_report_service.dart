@@ -72,6 +72,9 @@ class AssessmentReportService {
       'overall': overall,
       'confidence': confidence,
       'dataCoverage': measuredCoverage,
+      'attentionPercentage': rawMetrics['attentionPercentage'] != null
+          ? _asPercent(rawMetrics['attentionPercentage'])
+          : (normalizedSkills['attention'] ?? overall),
     };
 
     final List<String> orderedSkillKeys = normalizedSkills.keys.toList();
@@ -148,6 +151,14 @@ class AssessmentReportService {
       'strengths': strengths,
       'areasNeedingSupport': areasNeedingSupport,
       'rawMetrics': rawMetrics,
+      'attentionMetrics': <String, dynamic>{
+        'attentionPercentage': rawMetrics['attentionPercentage'] ?? normalizedSkills['attention'] ?? overall,
+        'attentiveSeconds': rawMetrics['attentiveSeconds'] ?? 0.0,
+        'distractedSeconds': rawMetrics['distractedSeconds'] ?? 0.0,
+        'totalAttentionTrackedSeconds': rawMetrics['totalAttentionTrackedSeconds'] ?? 0.0,
+        'distractionCount': rawMetrics['distractionCount'] ?? 0,
+        'openCvAttentionTracked': rawMetrics['openCvAttentionTracked'] == true,
+      },
       'activityLevelDetails': activityLevelDetails,
       'domainSupportIndicators': domainSupportIndicators,
       'accuracyMeta': <String, dynamic>{
