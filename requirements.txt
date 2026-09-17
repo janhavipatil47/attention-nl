@@ -1,0 +1,10 @@
+flask
+flask-cors
+pandas
+numpy
+opencv-python<5
+joblib
+scikit-learn
+fastapi
+uvicorn
+requests
