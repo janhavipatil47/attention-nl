@@ -6,7 +6,7 @@ import threading
 from typing import Dict, Any, Optional, Tuple
 
 class AttentionTrackerEngine:
-    def __init__(self, camera_index: int = 0, look_away_threshold_seconds: float = 2.0, show_window: bool = True):
+    def __init__(self, camera_index: int = 0, look_away_threshold_seconds: float = 6.0, show_window: bool = True):
         self.camera_index = camera_index
         self.look_away_threshold_seconds = look_away_threshold_seconds
         self.show_window = show_window
@@ -39,6 +39,7 @@ class AttentionTrackerEngine:
         self.eyes_detected = False
         self.look_away_start_time: Optional[float] = None
         self.last_eye_seen_time: float = time.time()
+        self.last_face_seen_time: float = time.time()
         
         # Latest processed frame (with computer vision annotations) for live preview stream
         self.latest_annotated_frame: Optional[np.ndarray] = None
@@ -84,6 +85,7 @@ class AttentionTrackerEngine:
         self.current_gaze_direction = "CENTER"
         self.look_away_start_time = None
         self.last_eye_seen_time = now
+        self.last_face_seen_time = now
 
     def stop_session(self) -> Dict[str, Any]:
         """Stops the tracking session and returns the final statistics."""
@@ -235,6 +237,7 @@ class AttentionTrackerEngine:
         Returns:
             (gaze_direction_str, is_looking_at_screen_bool, face_rect, eye_rects, pupil_points)
         """
+        now = time.time()
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         h, w = gray.shape
 
@@ -258,8 +261,15 @@ class AttentionTrackerEngine:
                 # Face is clearly turned away in profile
                 return "TURNED_AWAY", False, profiles[0], [], []
             
-            # No face detected at all
+            # Temporary face drop grace period (1.5 seconds) for natural head tilts/motion
+            if (now - self.last_face_seen_time) < 1.5:
+                return "CENTER (RECOVERING)", True, None, [], []
+
+            # No face detected at all for > 1.5s
             return "NO_FACE", False, None, [], []
+
+        # Face detected -> update last_face_seen_time
+        self.last_face_seen_time = now
 
         # Select the largest face (most likely the child)
         face = max(faces, key=lambda r: r[2] * r[3])
@@ -267,7 +277,7 @@ class AttentionTrackerEngine:
 
         # Check if face is too close to border or severely tilted
         face_center_x = fx + fw / 2.0
-        if face_center_x < w * 0.08 or face_center_x > w * 0.92:
+        if face_center_x < w * 0.05 or face_center_x > w * 0.95:
             return "HEAD_OFF_CENTER", False, face, [], []
 
         # 2. Detect eyes in upper 55% of the face region
@@ -287,7 +297,6 @@ class AttentionTrackerEngine:
         pupil_points = []
         gaze_votes = []
 
-        now = time.time()
         if len(eyes) > 0:
             self.last_eye_seen_time = now
 
@@ -305,32 +314,32 @@ class AttentionTrackerEngine:
                 px, py = pupil
                 pupil_points.append((abs_ex + px, abs_ey + py))
 
-                # Gaze ratio: horizontal position of pupil in eye (0 = far left, 1 = far right)
+                # Gaze ratio: horizontal and vertical position of pupil in eye ROI
                 norm_x = px / float(ew)
                 norm_y = py / float(eh)
 
-                # Center zone calibration (between 0.28 and 0.72 horizontally, <= 0.78 vertically)
-                if norm_x < 0.28:
+                # Calibrated screen zone (between 0.15 and 0.85 horizontally, <= 0.95 vertically)
+                if norm_x < 0.15:
                     gaze_votes.append("LEFT")
-                elif norm_x > 0.72:
+                elif norm_x > 0.85:
                     gaze_votes.append("RIGHT")
-                elif norm_y > 0.78:
+                elif norm_y > 0.95:
                     gaze_votes.append("DOWN")
-                elif norm_y < 0.22:
+                elif norm_y < 0.10:
                     gaze_votes.append("UP")
                 else:
                     gaze_votes.append("CENTER")
 
         # Decision logic
         if len(eyes) == 0:
-            # Face is present, but eyes not detected
-            # If eyes were seen within the last 0.4 seconds, treat as normal blink!
-            if (now - self.last_eye_seen_time) < 0.4:
-                return "CENTER (BLINK)", True, face, [], []
+            # Frontal face is present, but eye cascade lost pupil (e.g., looking down at bottom-screen options, squinting, or eyelid shadow)
+            # If eyes were seen within the last 3.5 seconds while face is facing camera, treat as active screen focus
+            if (now - self.last_eye_seen_time) < 3.5:
+                return "CENTER (FOCUS/BLINK)", True, face, [], []
             else:
                 return "EYES_CLOSED_OR_AWAY", False, face, [], []
 
-        if "CENTER" in gaze_votes or len(gaze_votes) == 0:
+        if "CENTER" in gaze_votes or "DOWN" in gaze_votes or len(gaze_votes) == 0:
             return "CENTER", True, face, eye_boxes, pupil_points
         else:
             # Gaze drifted away

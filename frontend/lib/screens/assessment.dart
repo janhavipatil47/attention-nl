@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/age_calculator_service.dart';
 import '../services/questionnaire_service.dart';
 import '../services/auth_service.dart';
 import 'handwriting_screening.dart';
@@ -19,6 +20,7 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
   bool _isSubmitting = false;
   bool _childDetailsChecked = false;
   bool _hasChildDetails = false;
+  ChildAgeResult? _ageResult;
 
   @override
   void initState() {
@@ -29,15 +31,17 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
   Future<void> _checkChildDetails() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String childName = (prefs.getString('childName') ?? '').trim();
-    final int? childAge = prefs.getInt('childAgeValue');
     final String childGrade = (prefs.getString('childGrade') ?? '').trim();
+    final DateTime? childDob = AgeCalculatorService.getDobFromPrefs(prefs);
+    final ChildAgeResult? ageResult = childDob != null ? AgeCalculatorService.calculateAge(childDob) : null;
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _hasChildDetails = childName.isNotEmpty && childAge != null && childGrade.isNotEmpty;
+      _hasChildDetails = childName.isNotEmpty && childDob != null && childGrade.isNotEmpty;
+      _ageResult = ageResult;
       _childDetailsChecked = true;
     });
   }
@@ -82,6 +86,52 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context),
                   child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (_ageResult != null && !_ageResult!.isEligibleAge) {
+      return Scaffold(
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: const BackButton(color: Colors.black54),
+          title: const Text(
+            'Smart Assessment',
+            style: TextStyle(color: Color(0xFF1A2B47), fontWeight: FontWeight.bold),
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.hourglass_empty_rounded, size: 64, color: Colors.orangeAccent),
+                const SizedBox(height: 16),
+                const Text(
+                  'Assessment Currently Unavailable',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  AgeCalculatorService.getAgeGatingMessage(_ageResult!),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, color: Colors.black87, height: 1.4),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6E56CF),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  ),
+                  child: const Text('Update Child Details', style: TextStyle(color: Colors.white)),
                 ),
               ],
             ),
@@ -276,19 +326,13 @@ class _SmartAssessmentScreenState extends State<SmartAssessmentScreen> {
                     );
 
                     // Get current user's ageOfChild from Firebase and route accordingly
-                    final currentUser = await AuthService.currentUser();
                     final SharedPreferences prefs =
                         await SharedPreferences.getInstance();
-                    final int? ageFromPrefs = prefs.getInt('childAgeValue');
-                    final int? ageOfChild = ageFromPrefs ?? currentUser?.ageOfChild;
+                    final ChildAgeResult? ageResult =
+                        AgeCalculatorService.getAgeResultFromPrefs(prefs);
 
-                    print('DEBUG: Current user = ${currentUser?.email}');
-                    print('DEBUG: Current user ageOfChild = $ageOfChild');
-                    
-                    // Prefer actual child age; default to 5 (younger flow) if missing.
-                    final int childAge = ageOfChild ?? 5;
-                    print('DEBUG: Using childAge = $childAge');
-                    print('DEBUG: childAge >= 6 = ${childAge >= 6}');
+                    // Prefer actual DOB-derived chronological age; default to 5.0 if missing.
+                    final num childAge = ageResult?.fractionalYears ?? 5.0;
 
                     Navigator.push(
                       context,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/age_calculator_service.dart';
 import '../services/auth_service.dart';
 import 'assessment.dart';
 import 'activities.dart';
@@ -131,10 +132,10 @@ class LearningHomeScreen extends StatelessWidget {
                   onPressed: () async {
                     final SharedPreferences prefs = await SharedPreferences.getInstance();
                     final String childName = (prefs.getString('childName') ?? '').trim();
-                    final int? childAge = prefs.getInt('childAgeValue');
                     final String childGrade = (prefs.getString('childGrade') ?? '').trim();
+                    final DateTime? childDob = AgeCalculatorService.getDobFromPrefs(prefs);
                     final bool hasChildDetails =
-                        childName.isNotEmpty && childAge != null && childGrade.isNotEmpty;
+                        childName.isNotEmpty && childDob != null && childGrade.isNotEmpty;
 
                     if (!context.mounted) {
                       return;
@@ -148,6 +149,49 @@ class LearningHomeScreen extends StatelessWidget {
                             userId: userId,
                             userName: userName,
                           ),
+                        ),
+                      );
+                      return;
+                    }
+
+                    final ChildAgeResult ageResult = AgeCalculatorService.calculateAge(childDob);
+                    if (!ageResult.isEligibleAge) {
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                          title: const Row(
+                            children: [
+                              Icon(Icons.info_outline, color: Color(0xFF6E56CF)),
+                              SizedBox(width: 8),
+                              Text('Assessment Age Limit'),
+                            ],
+                          ),
+                          content: Text(
+                            AgeCalculatorService.getAgeGatingMessage(ageResult),
+                            style: const TextStyle(fontSize: 14, color: Colors.black87),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChildInfoScreen(
+                                      userId: userId,
+                                      userName: userName,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: const Text('Update Child Details'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Close'),
+                            ),
+                          ],
                         ),
                       );
                       return;

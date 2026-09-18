@@ -141,10 +141,6 @@ class _ReportScreenState extends State<ReportScreen> {
     final Map<String, String> skillLabels = skillLabelsRaw.map(
       (String key, dynamic value) => MapEntry<String, String>(key, value.toString()),
     );
-    final List<String> scoredSkillKeys =
-        (data['scoredSkillKeys'] as List<dynamic>? ?? <dynamic>[])
-            .map((dynamic item) => item.toString())
-            .toList();
 
     final List<String> recommendations =
         (data['recommendations'] as List<dynamic>? ?? <dynamic>[])
@@ -156,15 +152,10 @@ class _ReportScreenState extends State<ReportScreen> {
     final List<String> areasNeedingSupport = (data['areasNeedingSupport'] as List<dynamic>? ?? <dynamic>[])
         .map((dynamic item) => item.toString())
         .toList();
-    final Map<String, dynamic> parentQuestionnaire =
-        (data['parentQuestionnaire'] as Map<String, dynamic>? ??
-            <String, dynamic>{});
     final Map<String, dynamic> email =
         (data['email'] as Map<String, dynamic>? ?? <String, dynamic>{});
     final Map<String, dynamic> activityLevelDetails =
         (data['activityLevelDetails'] as Map<String, dynamic>? ?? <String, dynamic>{});
-    final Map<String, dynamic> domainSupportIndicators =
-        (data['domainSupportIndicators'] as Map<String, dynamic>? ?? <String, dynamic>{});
 
     final String childName = (data['childName'] ?? 'Child').toString();
     final String parentName = (data['parentName'] ?? 'Parent').toString();
@@ -177,9 +168,6 @@ class _ReportScreenState extends State<ReportScreen> {
     final double confidence = _readScore(scores, 'confidence');
     final double overall = _readScore(scores, 'overall');
     final String emailStatus = (email['status'] ?? 'queued').toString();
-    final bool parentIncluded = parentQuestionnaire['available'] == true;
-    final List<MapEntry<String, double>> skillEntries =
-        _extractSkillEntries(scores, scoredSkillKeys);
     final String generatedAt = _formatCreatedAt(data['createdAt']);
 
     // Extract Attention Tracking metrics
@@ -204,13 +192,15 @@ class _ReportScreenState extends State<ReportScreen> {
         0;
     final bool openCvTracked = attentionMetrics['openCvAttentionTracked'] == true ||
         rawMetrics['openCvAttentionTracked'] == true;
+    final Map<String, dynamic> howMeasured =
+        (data['howMeasured'] as Map<String, dynamic>? ?? <String, dynamic>{});
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // Section 1: Assessment Summary
+          // Section 1: Child Information & Header Card
           _headerCard(
             childName: childName,
             parentName: parentName,
@@ -228,7 +218,16 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Visual Attention Tracking Card
+          // Section 2: Overall Learning Profile Summary Card
+          _overallLearningProfileCard(
+            overall: overall,
+            statusLabel: statusLabel,
+            confidence: confidence,
+            scores: scores,
+          ),
+          const SizedBox(height: 16),
+
+          // Section 3: Visual Attention & Gaze Tracking Card
           _attentionTrackingCard(
             attentionPercentage: attentionPercentage,
             attentiveSec: attentiveSec,
@@ -238,41 +237,18 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Section 2: Domain Performance
+          // Section 4 & 5: Four Domain Performance Cards & Level 1 / Level 2 / Level 3 Activity Performance
           _sectionCard(
-            title: 'Domain Performance',
-            child: Column(
-              children: skillEntries.isEmpty
-                  ? <Widget>[
-                      const Text(
-                        'No assessed skills found.',
-                        style: TextStyle(color: Colors.black54),
-                      ),
-                    ]
-                  : skillEntries.map((MapEntry<String, double> item) {
-                      final String label = skillLabels[item.key] ?? item.key;
-                      final Color color = _colorForSkill(item.key);
-                      final String domainKey = item.key;
-                      final Map<String, dynamic>? domainIndicator = domainSupportIndicators[domainKey];
-                      final double childAvgAccuracy = domainIndicator != null
-                          ? (domainIndicator['averageAccuracy'] as num?)?.toDouble() ?? 0.0
-                          : 0.0;
-                      final double parentSupport = domainIndicator != null
-                          ? (domainIndicator['parentSupportScore'] as num?)?.toDouble() ?? 0.0
-                          : 0.0;
-                      return _domainScoreCard(
-                        label,
-                        item.value,
-                        color,
-                        childAvgAccuracy: childAvgAccuracy,
-                        parentSupport: parentSupport > 0 ? parentSupport : null,
-                      );
-                    }).toList(),
+            title: 'Domain & Activity Performance',
+            child: _buildConsolidatedDomainActivityPerformance(
+              scores: scores,
+              skillLabels: skillLabels,
+              activityLevelDetails: activityLevelDetails,
             ),
           ),
           const SizedBox(height: 16),
 
-          // Section 3: Strengths
+          // Section 6: Strengths (Text only, NO percentages)
           if (strengths.isNotEmpty) ...[
             _sectionCard(
               title: 'Strengths',
@@ -286,10 +262,10 @@ class _ReportScreenState extends State<ReportScreen> {
             const SizedBox(height: 16),
           ],
 
-          // Section 4: Areas for Practice
+          // Section 7: Areas for Additional Practice (Text only, NO percentages)
           if (areasNeedingSupport.isNotEmpty) ...[
             _sectionCard(
-              title: 'Areas That May Need More Practice',
+              title: 'Areas for Additional Practice',
               child: Column(
                 children: areasNeedingSupport
                     .take(5)
@@ -300,11 +276,11 @@ class _ReportScreenState extends State<ReportScreen> {
             const SizedBox(height: 16),
           ],
 
-          // Section 5: Recommended Next Steps
+          // Section 8: Recommended Home/Classroom Practice
           _sectionCard(
-            title: 'Recommended Next Steps',
+            title: 'Recommended Home/Classroom Practice',
             child: recommendations.isEmpty
-                ? const Text('No actions available.', style: TextStyle(color: Colors.black54))
+                ? const Text('No recommendations available.', style: TextStyle(color: Colors.black54))
                 : Column(
                     children: recommendations
                         .map((String line) => _recommendationCard(line))
@@ -313,26 +289,11 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           const SizedBox(height: 16),
 
-          // Section 6: Detailed Activity Results (Collapsible)
-          _sectionCard(
-            title: 'Detailed Activity Results',
-            child: _buildCollapsibleActivityDetails(activityLevelDetails, skillLabels),
-          ),
+          // Section 10: How This Assessment Was Measured Card
+          _howMeasuredCard(howMeasured),
           const SizedBox(height: 16),
 
-          // Section 7: Parent Input
-          _sectionCard(
-            title: 'Parent Input',
-            child: parentIncluded
-                ? _buildParentObservationsCompact(parentQuestionnaire)
-                : const Text(
-                    'Parent questionnaire not completed. Overall score based on child assessment only (72% weightage).',
-                    style: TextStyle(color: Colors.black54),
-                  ),
-          ),
-          const SizedBox(height: 16),
-
-          // Section 8: Short Disclaimer
+          // Section 11: Educational Screening Disclaimer
           _disclaimerCard(),
         ],
       ),
@@ -405,7 +366,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '$childName — Assessment Complete',
+                      '$childName — Assessment Summary',
                       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
                     ),
                     const SizedBox(height: 4),
@@ -424,7 +385,10 @@ class _ReportScreenState extends State<ReportScreen> {
               const SizedBox(width: 8),
               _infoChip('Grade: $childGrade', Icons.school),
               const SizedBox(width: 8),
-              _infoChip(assessmentType.replaceAll('_', ' ').toUpperCase(), Icons.assessment),
+              _infoChip(
+                assessmentType == 'age_3_to_5' ? 'Age 3–5 Assessment' : 'Age 6–7 Assessment',
+                Icons.assessment,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -455,7 +419,7 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'Overall score combines child assessment (72%) and parent questionnaire (28%).',
+            'Overall score is derived directly from performance across all assessed activity domains.',
             style: const TextStyle(fontSize: 11, color: Colors.black54, fontStyle: FontStyle.italic),
           ),
           const SizedBox(height: 12),
@@ -463,7 +427,7 @@ class _ReportScreenState extends State<ReportScreen> {
             children: [
               _chip('Generated: $generatedAt'),
               const SizedBox(width: 8),
-              _chip('Email: $emailStatus'),
+              _chip('Email: ${emailStatus == "sent" ? "Sent to Parent" : (emailStatus == "sending" ? "Sending..." : "Queued")}'),
             ],
           ),
         ],
@@ -515,7 +479,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'The OpenCV webcam gaze tracker was not running during this assessment session. To measure the child\'s visual attention and trigger "Look at the screen" alerts, ensure the Python tracker is running before starting the assessment.',
+                    'Camera visual focus tracking was not enabled during this assessment session. To measure the child\'s visual focus and enable focus reminders, ensure camera tracking is active before starting.',
                     style: TextStyle(fontSize: 12, color: Colors.black54, height: 1.3),
                   ),
                 ],
@@ -585,7 +549,7 @@ class _ReportScreenState extends State<ReportScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Visual Attention & Gaze Tracking',
+                      'Visual Attention & Focus Tracking',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -593,7 +557,7 @@ class _ReportScreenState extends State<ReportScreen> {
                       ),
                     ),
                     Text(
-                      'Monitored live via OpenCV camera gaze tracker',
+                      'Monitored live via screen visual focus tracking',
                       style: TextStyle(fontSize: 12, color: Colors.black54),
                     ),
                   ],
@@ -681,6 +645,187 @@ class _ReportScreenState extends State<ReportScreen> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _overallLearningProfileCard({
+    required double overall,
+    required String statusLabel,
+    required double confidence,
+    required Map<String, dynamic> scores,
+  }) {
+    Color statusColor;
+    if (overall >= 75) {
+      statusColor = Colors.green;
+    } else if (overall >= 50) {
+      statusColor = Colors.orange;
+    } else {
+      statusColor = Colors.red;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Overall Learning Profile',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: statusColor.withValues(alpha: 0.25)),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Overall Score',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${overall.toStringAsFixed(0)}%',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: statusColor),
+                      ),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          statusLabel,
+                          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Data Reliability',
+                        style: TextStyle(fontSize: 11, color: Colors.grey.shade700, fontWeight: FontWeight.w500),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${confidence.toStringAsFixed(0)}%',
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Measured',
+                        style: TextStyle(fontSize: 11, color: Colors.blue, fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _howMeasuredCard(Map<String, dynamic> howMeasured) {
+    final String title = (howMeasured['title'] as String?) ?? 'How This Assessment Was Measured';
+    final String desc = (howMeasured['description'] as String?) ?? '';
+    final List<String> points = (howMeasured['points'] as List<dynamic>? ?? <dynamic>[])
+        .map((e) => e.toString())
+        .toList();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.indigo.shade200, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.indigo.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.tune_rounded, color: Colors.indigo, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
+                ),
+              ),
+            ],
+          ),
+          if (desc.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(desc, style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.3)),
+          ],
+          const SizedBox(height: 12),
+          Column(
+            children: points
+                .map((p) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.check_circle_outline, size: 14, color: Colors.indigo),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(p, style: const TextStyle(fontSize: 12, color: Colors.black87, height: 1.35)),
+                          ),
+                        ],
+                      ),
+                    ))
+                .toList(),
           ),
         ],
       ),
@@ -810,268 +955,84 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  Widget _domainScoreCard(
-    String label,
-    double value,
-    Color color, {
-    required double childAvgAccuracy,
-    double? parentSupport,
+  Widget _buildConsolidatedDomainActivityPerformance({
+    required Map<String, dynamic> scores,
+    required Map<String, String> skillLabels,
+    required Map<String, dynamic> activityLevelDetails,
   }) {
-    String status;
-    if (value >= 75) {
-      status = 'Strong';
-    } else if (value >= 50) {
-      status = 'Developing';
-    } else {
-      status = 'Needs More Practice';
-    }
-
-    Color statusColor;
-    switch (status) {
-      case 'Strong':
-        statusColor = Colors.green;
-        break;
-      case 'Developing':
-        statusColor = Colors.orange;
-        break;
-      default:
-        statusColor = Colors.red;
-    }
-
-    // Check if there's a discrepancy between child accuracy and overall score
-    final bool hasParentDiscrepancy = parentSupport != null && 
-        childAvgAccuracy >= 70 && 
-        value < 60;
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2)),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(_iconForDomain(label), color: color, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      label,
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF1A2B47)),
-                    ),
-                    if (childAvgAccuracy > 0)
-                      Text(
-                        'Child activity accuracy: ${childAvgAccuracy.toStringAsFixed(0)}%',
-                        style: const TextStyle(fontSize: 11, color: Colors.black54),
-                      ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    '${value.toStringAsFixed(0)}%',
-                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: statusColor.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      status,
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: statusColor),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          if (hasParentDiscrepancy) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.info_outline, size: 16, color: Colors.blue.shade700),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Assessment activity performance was strong. Parent questionnaire responses suggest additional observation or practice may be helpful.',
-                      style: TextStyle(fontSize: 11, color: Colors.blue.shade700, height: 1.3),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: (value / 100).clamp(0.0, 1.0),
-            minHeight: 6,
-            color: color,
-            backgroundColor: Colors.grey.shade200,
-            borderRadius: BorderRadius.circular(3),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCollapsibleActivityDetails(Map<String, dynamic> activityLevelDetails, Map<String, String> skillLabels) {
     final List<Map<String, dynamic>> activityDetails =
         (activityLevelDetails['activityDetails'] as List<dynamic>? ?? <dynamic>[])
             .map((e) => Map<String, dynamic>.from(e))
             .toList();
-    final Map<String, dynamic> domainSummaries =
-        (activityLevelDetails['domainSummaries'] as Map<String, dynamic>? ?? <String, dynamic>{});
-
-    if (activityDetails.isEmpty) {
-      return const Text('No activity details available.', style: TextStyle(color: Colors.black54));
-    }
 
     // Group activities by domain
     final Map<String, List<Map<String, dynamic>>> domainActivities = {};
     for (final activity in activityDetails) {
-      final String domain = activity['domain'] as String;
+      final String domain = (activity['domain'] as String?) ?? 'other';
       domainActivities.putIfAbsent(domain, () => []).add(activity);
     }
 
-    final List<Widget> domainWidgets = <Widget>[];
-    final List<String> domainOrder = ['reading_language', 'writing_tracing', 'math', 'attention', 'memory', 'listening'];
+    final List<String> domainOrder = [
+      'reading_language',
+      'writing_tracing',
+      'math',
+      'attention',
+      'memory',
+      'listening',
+    ];
 
-    for (final domain in domainOrder) {
-      if (!domainActivities.containsKey(domain)) continue;
-      final activities = domainActivities[domain]!;
-      final domainSummary = domainSummaries[domain] as Map<String, dynamic>? ?? {};
-      final String domainLabel = skillLabels[domain] ?? domain;
-      final Color domainColor = _colorForSkill(domain);
+    final List<Widget> domainCards = <Widget>[];
 
-      domainWidgets.add(_CollapsibleDomainActivityCard(
-        domain: domain,
-        domainLabel: domainLabel,
-        activities: activities,
-        domainSummary: domainSummary,
-        domainColor: domainColor,
-      ));
-      domainWidgets.add(const SizedBox(height: 10));
+    for (final domainKey in domainOrder) {
+      final double domainScore = _readScore(scores, domainKey);
+      final List<Map<String, dynamic>> activities = domainActivities[domainKey] ?? [];
+
+      if (!scores.containsKey(domainKey) && activities.isEmpty) {
+        continue;
+      }
+
+      final String domainLabel = skillLabels[domainKey] ?? _defaultLabelForDomain(domainKey);
+      final Color color = _colorForSkill(domainKey);
+
+      domainCards.add(
+        _DomainActivityConsolidatedCard(
+          domainKey: domainKey,
+          domainLabel: domainLabel,
+          domainScore: domainScore,
+          activities: activities,
+          color: color,
+        ),
+      );
+      domainCards.add(const SizedBox(height: 12));
+    }
+
+    if (domainCards.isEmpty) {
+      return const Text('No assessed domain data available.', style: TextStyle(color: Colors.black54));
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Tap a domain to see activity-level details. Level = difficulty reached; Accuracy = performance at that level.',
-          style: TextStyle(fontSize: 12, color: Colors.black54, fontStyle: FontStyle.italic),
-        ),
-        const SizedBox(height: 12),
-        ...domainWidgets,
-      ],
+      children: domainCards,
     );
   }
 
-  Widget _buildParentObservationsCompact(Map<String, dynamic> parentQuestionnaire) {
-    final Map<String, dynamic> domainSupportScores =
-        (parentQuestionnaire['domainSupportScores'] as Map<String, dynamic>? ?? <String, dynamic>{});
-    final int answeredQuestions = _asInt(parentQuestionnaire['answeredQuestions']);
-    final double overallSupport = _asDouble(parentQuestionnaire['overallSupport']);
-
-    final List<String> domainOrder = ['reading', 'writing', 'math', 'attention', 'listening', 'memory'];
-    final Map<String, String> domainLabels = {
-      'reading': 'Reading & Language',
-      'writing': 'Writing & Tracing',
-      'math': 'Math & Number Sense',
-      'attention': 'Attention & Focus',
-      'listening': 'Listening',
-      'memory': 'Memory & Matching',
-    };
-
-    // Simple overall summary label
-    String overallSummary;
-    if (overallSupport >= 75) {
-      overallSummary = 'Parent questionnaire indicates low concern overall';
-    } else if (overallSupport >= 50) {
-      overallSummary = 'Parent questionnaire suggests some areas may need attention';
-    } else {
-      overallSummary = 'Parent questionnaire indicates notable concerns in several areas';
+  String _defaultLabelForDomain(String key) {
+    switch (key) {
+      case 'reading_language':
+        return 'Reading & Language';
+      case 'writing_tracing':
+        return 'Writing & Tracing';
+      case 'math':
+        return 'Math & Number Sense';
+      case 'attention':
+        return 'Attention & Focus';
+      case 'memory':
+        return 'Memory & Matching';
+      case 'listening':
+        return 'Listening';
+      default:
+        return key.replaceAll('_', ' ').toUpperCase();
     }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Based on $answeredQuestions questionnaire responses. Parent input contributes 28% to overall score.',
-          style: const TextStyle(color: Colors.black87, fontSize: 13),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          overallSummary,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF1A2B47)),
-        ),
-        const SizedBox(height: 12),
-        ...domainOrder.map((domain) {
-          final double support = (domainSupportScores[domain] as num?)?.toDouble() ?? 100;
-          String observation;
-          Color obsColor;
-          if (support >= 75) {
-            observation = 'Relatively stronger';
-            obsColor = Colors.green;
-          } else if (support >= 50) {
-            observation = 'Some support may help';
-            obsColor = Colors.orange;
-          } else {
-            observation = 'Further observation recommended';
-            obsColor = Colors.blue;
-          }
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: support >= 75 ? Colors.green : (support >= 50 ? Colors.orange : Colors.blue),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Text('${domainLabels[domain] ?? domain}: ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
-                Text(
-                  observation,
-                  style: TextStyle(fontSize: 13, color: obsColor),
-                ),
-              ],
-            ),
-          );
-        }),
-      ],
-    );
   }
 
   Widget _recommendationCard(String text) {
@@ -1143,7 +1104,7 @@ class _ReportScreenState extends State<ReportScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'This report is based on a gamified assessment and parent questionnaire from a single session. Results may vary based on engagement, fatigue, and environment. This is for educational support only, not a medical diagnosis. For concerns, consult a qualified professional.',
+            'This report is based on gamified assessment activities from a single session. Results may vary based on engagement, fatigue, and environment. This report is for educational support only, not a medical diagnosis.',
             style: TextStyle(fontSize: 11, color: Colors.black54, height: 1.5),
           ),
         ],
@@ -1208,27 +1169,6 @@ class _ReportScreenState extends State<ReportScreen> {
     );
   }
 
-  List<MapEntry<String, double>> _extractSkillEntries(
-    Map<String, dynamic> scores,
-    List<String> scoredSkillKeys,
-  ) {
-    final Set<String> blocked = <String>{'overall', 'confidence', 'dataCoverage'};
-    final List<String> keys = scoredSkillKeys
-        .where((String key) => !blocked.contains(key) && scores.containsKey(key))
-        .toList();
-
-    if (keys.isEmpty) {
-      for (final String key in scores.keys) {
-        if (!blocked.contains(key)) {
-          keys.add(key);
-        }
-      }
-    }
-
-    return keys
-        .map((String key) => MapEntry<String, double>(key, _readScore(scores, key)))
-        .toList();
-  }
 
   String _formatCreatedAt(dynamic createdAt) {
     if (createdAt is Timestamp) {
@@ -1261,17 +1201,6 @@ class _ReportScreenState extends State<ReportScreen> {
     return Colors.blueGrey;
   }
 
-  IconData _iconForDomain(String label) {
-    final String lower = label.toLowerCase();
-    if (lower.contains('reading') || lower.contains('language')) return Icons.menu_book;
-    if (lower.contains('writing') || lower.contains('tracing')) return Icons.edit;
-    if (lower.contains('math') || lower.contains('number')) return Icons.calculate;
-    if (lower.contains('attention') || lower.contains('focus')) return Icons.center_focus_strong;
-    if (lower.contains('memory') || lower.contains('match')) return Icons.psychology;
-    if (lower.contains('listen')) return Icons.hearing;
-    return Icons.category;
-  }
-
   double _readScore(Map<String, dynamic> scores, String key) {
     final dynamic value = scores[key];
     if (value is num) {
@@ -1279,180 +1208,203 @@ class _ReportScreenState extends State<ReportScreen> {
     }
     return 0;
   }
-
-  double _asDouble(dynamic value) {
-    if (value is num) {
-      return value.toDouble();
-    }
-    return 0;
-  }
-
-  int _asInt(dynamic value) {
-    if (value is num) {
-      return value.toInt();
-    }
-    return 0;
-  }
 }
 
-class _CollapsibleDomainActivityCard extends StatefulWidget {
-  final String domain;
+class _DomainActivityConsolidatedCard extends StatefulWidget {
+  final String domainKey;
   final String domainLabel;
+  final double domainScore;
   final List<Map<String, dynamic>> activities;
-  final Map<String, dynamic> domainSummary;
-  final Color domainColor;
+  final Color color;
 
-  const _CollapsibleDomainActivityCard({
-    required this.domain,
+  const _DomainActivityConsolidatedCard({
+    required this.domainKey,
     required this.domainLabel,
+    required this.domainScore,
     required this.activities,
-    required this.domainSummary,
-    required this.domainColor,
+    required this.color,
   });
 
   @override
-  State<_CollapsibleDomainActivityCard> createState() => _CollapsibleDomainActivityCardState();
+  State<_DomainActivityConsolidatedCard> createState() =>
+      __DomainActivityConsolidatedCardState();
 }
 
-class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivityCard> {
-  bool _expanded = false;
+class __DomainActivityConsolidatedCardState
+    extends State<_DomainActivityConsolidatedCard> {
+  bool _expanded = true;
 
   @override
   Widget build(BuildContext context) {
-    final double avgAccuracy = (widget.domainSummary['averageAccuracy'] as num?)?.toDouble() ?? 0.0;
-    final int maxLevel = (widget.domainSummary['maxLevelReached'] as num?)?.toInt() ?? 1;
-    final int activitiesAtLevel3 = (widget.domainSummary['activitiesAtLevel3'] as num?)?.toInt() ?? 0;
+    String status;
+    Color statusColor;
+    if (widget.domainScore >= 75) {
+      status = 'On Track';
+      statusColor = Colors.green;
+    } else if (widget.domainScore >= 50) {
+      status = 'Developing';
+      statusColor = Colors.orange;
+    } else {
+      status = 'Needs Practice';
+      statusColor = Colors.red;
+    }
 
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: widget.domainColor.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: widget.color.withValues(alpha: 0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: widget.domainColor.withValues(alpha: 0.1),
-                borderRadius: _expanded
-                    ? const BorderRadius.only(
-                        topLeft: Radius.circular(12),
-                        topRight: Radius.circular(12),
-                      )
-                    : BorderRadius.circular(12),
-              ),
-              child: Row(
+            onTap: widget.activities.isNotEmpty
+                ? () => setState(() => _expanded = !_expanded)
+                : null,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: widget.domainColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Icon(_iconForDomain(widget.domainLabel), color: Colors.white, size: 20),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.domainLabel,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: widget.domainColor,
-                          ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: widget.color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                        Text(
-                          'Avg Accuracy: ${avgAccuracy.toStringAsFixed(0)}%  •  Max Level: $maxLevel  •  Level 3: $activitiesAtLevel3/${widget.activities.length}',
-                          style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        child: Icon(_iconForDomain(widget.domainLabel), color: widget.color, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.domainLabel,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1A2B47),
+                              ),
+                            ),
+                            Text(
+                              '${widget.activities.length} ${widget.activities.length == 1 ? "activity" : "activities"} assessed',
+                              style: const TextStyle(fontSize: 12, color: Colors.black54),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${widget.domainScore.toStringAsFixed(0)}%',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: widget.color,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: statusColor.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              status,
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: statusColor),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (widget.activities.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Icon(
+                          _expanded ? Icons.expand_less : Icons.expand_more,
+                          color: Colors.black54,
                         ),
                       ],
-                    ),
+                    ],
                   ),
-                  _levelBadge(maxLevel, widget.domainColor),
-                  const SizedBox(width: 8),
-                  Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.black54,
-                    size: 24,
+                  const SizedBox(height: 10),
+                  LinearProgressIndicator(
+                    value: (widget.domainScore / 100).clamp(0.0, 1.0),
+                    minHeight: 6,
+                    color: widget.color,
+                    backgroundColor: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ],
               ),
             ),
           ),
-          if (_expanded)
-            ...widget.activities.map((activity) => _compactActivityRow(activity, widget.domainColor)),
+          if (_expanded && widget.activities.isNotEmpty) ...[
+            Divider(height: 1, color: Colors.grey.shade200),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: Column(
+                children: widget.activities
+                    .map((activity) => _activityRow(activity, widget.color))
+                    .toList(),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  Widget _levelBadge(int level, Color color) {
-    Color badgeColor;
-    switch (level) {
-      case 3:
-        badgeColor = Colors.green;
-        break;
-      case 2:
-        badgeColor = Colors.orange;
-        break;
-      default:
-        badgeColor = Colors.blueGrey;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: badgeColor,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(
-        'Level $level',
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12),
-      ),
-    );
-  }
+  Widget _activityRow(Map<String, dynamic> activity, Color domainColor) {
+    final String name = (activity['activityName'] as String?) ?? 'Activity';
+    final String skill = (activity['targetSkill'] as String?) ?? 'General Skill';
+    final int highestLevel = (activity['highestLevelReached'] as num?)?.toInt() ??
+        (activity['selectedLevel'] as num?)?.toInt() ?? 1;
+    final double accuracy = (activity['accuracy'] as num?)?.toDouble() ?? 0.0;
+    final int attempts = (activity['attempts'] as num?)?.toInt() ?? 0;
+    final int hints = (activity['hintsUsed'] as num?)?.toInt() ?? 0;
+    final String performance = (activity['performanceLevel'] as String?) ?? 'Developing';
+    final List<dynamic> levels = (activity['levels'] as List<dynamic>? ?? []);
+    final bool isMultiLevel = levels.length > 1;
 
-  Widget _compactActivityRow(Map<String, dynamic> activity, Color domainColor) {
-    final String name = activity['activityName'] as String;
-    final String skill = activity['targetSkill'] as String;
-    final int selectedLevel = activity['selectedLevel'] as int;
-    final int unlockedLevel = activity['unlockedLevel'] as int;
-    final double accuracy = activity['accuracy'] as double;
-    final int attempts = activity['attempts'] as int;
-    final int hints = activity['hintsUsed'] as int;
-    final String performance = activity['performanceLevel'] as String;
+    final bool notAssessed = attempts == 0 && performance == 'Not Assessed';
 
     Color perfColor;
     String perfText;
-    switch (performance) {
-      case 'Proficient':
-        perfColor = Colors.green;
-        perfText = 'Strong';
-        break;
-      case 'Developing':
-        perfColor = Colors.orange;
-        perfText = 'Developing';
-        break;
-      default:
-        perfColor = Colors.red;
-        perfText = 'Needs Practice';
+    if (notAssessed) {
+      perfColor = Colors.grey;
+      perfText = 'Not Assessed';
+    } else {
+      switch (performance) {
+        case 'Proficient':
+          perfColor = Colors.green;
+          perfText = 'Strong';
+          break;
+        case 'Developing':
+          perfColor = Colors.orange;
+          perfText = 'Developing';
+          break;
+        default:
+          perfColor = Colors.red;
+          perfText = 'Needs Practice';
+      }
     }
 
-    // Handle 0 attempts - show as "Not assessed" instead of 0%
-    final bool notAssessed = attempts == 0;
-    final String accuracyText = notAssessed ? 'Not assessed' : '${accuracy.toStringAsFixed(0)}%';
-
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+        border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1464,8 +1416,8 @@ class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivi
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                    Text(skill, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+                    Text(name, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: Color(0xFF1A2B47))),
+                    Text(skill, style: const TextStyle(fontSize: 11, color: Colors.black54)),
                   ],
                 ),
               ),
@@ -1474,27 +1426,22 @@ class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivi
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: perfColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'L$selectedLevel • $perfText',
-                            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: perfColor),
-                          ),
-                        ),
-                      ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: perfColor.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        isMultiLevel ? 'Max L$highestLevel • $perfText' : perfText,
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: perfColor),
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 2),
                     Text(
-                      accuracyText,
+                      notAssessed ? 'Not assessed' : '${accuracy.toStringAsFixed(0)}% overall',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w500,
                         color: notAssessed ? Colors.grey : perfColor,
                       ),
@@ -1507,15 +1454,91 @@ class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivi
           const SizedBox(height: 6),
           Row(
             children: [
-              _activityDetailChip('L$selectedLevel', Icons.layers, domainColor),
-              const SizedBox(width: 8),
-              _activityDetailChip('$attempts attempts', Icons.replay, Colors.blueGrey),
-              const SizedBox(width: 8),
-              _activityDetailChip('$hints hints', Icons.lightbulb_outline, Colors.amber.shade700),
-              const SizedBox(width: 8),
-              _activityDetailChip('Unlocked: L$unlockedLevel', Icons.lock_open, Colors.grey),
+              if (isMultiLevel) ...[
+                _chipBadge('Highest: Level $highestLevel', Icons.layers, domainColor),
+                const SizedBox(width: 6),
+              ],
+              _chipBadge('$attempts ${attempts == 1 ? "attempt" : "attempts"}', Icons.replay, Colors.blueGrey),
+              const SizedBox(width: 6),
+              _chipBadge('$hints ${hints == 1 ? "hint" : "hints"}', Icons.lightbulb_outline, Colors.amber.shade700),
             ],
           ),
+          if (isMultiLevel) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F9FA),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '3-Level Assessment Progression:',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54),
+                  ),
+                  const SizedBox(height: 4),
+                  ...levels.map((lvlItem) {
+                    final lvlMap = Map<String, dynamic>.from(lvlItem as Map);
+                    final int lvlNum = (lvlMap['level'] as num).toInt();
+                    final bool attempted = lvlMap['attempted'] == true;
+                    final double lvlAcc = (lvlMap['accuracy'] as num?)?.toDouble() ?? 0.0;
+                    final String lvlPerf = (lvlMap['performanceLevel'] as String?) ?? 'Not Assessed';
+
+                    Color lvlColor;
+                    String lvlStatusText;
+                    if (!attempted) {
+                      lvlColor = Colors.grey;
+                      lvlStatusText = 'Not Assessed';
+                    } else if (lvlPerf == 'Proficient') {
+                      lvlColor = Colors.green;
+                      lvlStatusText = '${lvlAcc.toStringAsFixed(0)}% • Proficient ✓';
+                    } else if (lvlPerf == 'Developing') {
+                      lvlColor = Colors.orange;
+                      lvlStatusText = '${lvlAcc.toStringAsFixed(0)}% • Developing';
+                    } else {
+                      lvlColor = Colors.red;
+                      lvlStatusText = '${lvlAcc.toStringAsFixed(0)}% • Needs Support';
+                    }
+
+                    String levelName;
+                    switch (lvlNum) {
+                      case 1:
+                        levelName = 'Level 1 — Foundation';
+                        break;
+                      case 2:
+                        levelName = 'Level 2 — Developing';
+                        break;
+                      case 3:
+                        levelName = 'Level 3 — Challenge';
+                        break;
+                      default:
+                        levelName = 'Level $lvlNum';
+                    }
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            levelName,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.grey.shade800),
+                          ),
+                          Text(
+                            lvlStatusText,
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: lvlColor),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ],
           if (!notAssessed) ...[
             const SizedBox(height: 6),
             LinearProgressIndicator(
@@ -1531,9 +1554,9 @@ class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivi
     );
   }
 
-  Widget _activityDetailChip(String label, IconData icon, Color color) {
+  Widget _chipBadge(String label, IconData icon, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
@@ -1541,7 +1564,7 @@ class _CollapsibleDomainActivityCardState extends State<_CollapsibleDomainActivi
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
+          Icon(icon, size: 11, color: color),
           const SizedBox(width: 4),
           Text(
             label,

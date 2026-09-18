@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/age_calculator_service.dart';
 import 'homePage.dart';
 
 class ChildInfoScreen extends StatefulWidget {
@@ -19,7 +20,6 @@ class ChildInfoScreen extends StatefulWidget {
 
 class _ChildInfoScreenState extends State<ChildInfoScreen> {
   final TextEditingController _childNameController = TextEditingController();
-  final List<int> _ageOptions = <int>[3, 4, 5, 6, 7];
   final List<String> _gradeOptions = <String>[
     'Nursery',
     'LKG',
@@ -28,8 +28,33 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
     'Grade 2',
   ];
 
-  int? _selectedAge;
+  DateTime? _selectedDob;
   String? _selectedGrade;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadExistingDetails();
+  }
+
+  Future<void> _loadExistingDetails() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final String storedName = (prefs.getString('childName') ?? '').trim();
+    final String storedGrade = (prefs.getString('childGrade') ?? '').trim();
+    final DateTime? storedDob = AgeCalculatorService.getDobFromPrefs(prefs);
+
+    if (mounted) {
+      setState(() {
+        if (storedName.isNotEmpty) {
+          _childNameController.text = storedName;
+        }
+        if (storedGrade.isNotEmpty && _gradeOptions.contains(storedGrade)) {
+          _selectedGrade = storedGrade;
+        }
+        _selectedDob = storedDob;
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -37,19 +62,85 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
     super.dispose();
   }
 
+  Future<void> _pickDateOfBirth() async {
+    final DateTime initial = _selectedDob ??
+        DateTime.now().subtract(const Duration(days: 365 * 4));
+    final DateTime firstDate =
+        DateTime.now().subtract(const Duration(days: 365 * 18));
+    final DateTime lastDate = DateTime.now();
+
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial.isAfter(lastDate) ? lastDate : initial,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      helpText: 'Select Child\'s Date of Birth',
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF6E56CF),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF1A2B47),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _selectedDob = picked;
+      });
+    }
+  }
+
   Future<void> _saveAndContinue() async {
     final String childName = _childNameController.text.trim();
-    if (childName.isEmpty || _selectedAge == null || _selectedGrade == null) {
+    if (childName.isEmpty || _selectedDob == null || _selectedGrade == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please complete child name, age, and grade.')),
+        const SnackBar(
+          content: Text('Please complete child name, date of birth, and grade.'),
+        ),
+      );
+      return;
+    }
+
+    final ChildAgeResult ageResult = AgeCalculatorService.calculateAge(_selectedDob!);
+
+    if (!ageResult.isEligibleAge) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+              SizedBox(width: 8),
+              Text('Assessment Age Limit'),
+            ],
+          ),
+          content: Text(
+            AgeCalculatorService.getAgeGatingMessage(ageResult),
+            style: const TextStyle(fontSize: 14, color: Colors.black87),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('OK', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
       );
       return;
     }
 
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString('childName', childName);
-    await prefs.setInt('childAgeValue', _selectedAge!);
-    await prefs.setString('childAge', _selectedAge!.toString());
+    await prefs.setString('childDob', _selectedDob!.toIso8601String().split('T').first);
+    await prefs.setString('childAge', ageResult.formattedAge);
+    await prefs.setInt('childAgeValue', ageResult.years);
     await prefs.setString('childGrade', _selectedGrade!);
 
     if (!mounted) {
@@ -69,6 +160,11 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ChildAgeResult? ageResult;
+    if (_selectedDob != null) {
+      ageResult = AgeCalculatorService.calculateAge(_selectedDob!);
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF3F6FF),
       body: SafeArea(
@@ -111,7 +207,7 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
                   const SizedBox(width: 40), // Balance the back button
                 ],
               ),
-              
+
               const SizedBox(height: 20),
               const Text(
                 'NeuroLearn',
@@ -120,7 +216,7 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
               const SizedBox(height: 15),
               // Illustration Placeholder
               const Icon(Icons.family_restroom, size: 100, color: Colors.blueGrey),
-              
+
               const SizedBox(height: 20),
               const Text(
                 'Tell us about your child',
@@ -143,14 +239,20 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
                   border: Border.all(color: Colors.white, width: 2),
                 ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildLabel(Icons.person, "Child's Name"),
                     _buildTextField(),
-                    
+
                     const SizedBox(height: 20),
-                    _buildLabel(Icons.cake, "Age"),
-                    _buildAgeDropdown(),
-                    
+                    _buildLabel(Icons.cake, "Date of Birth"),
+                    _buildDobSelector(),
+
+                    if (ageResult != null) ...[
+                      const SizedBox(height: 12),
+                      _buildCalculatedAgeCard(ageResult),
+                    ],
+
                     const SizedBox(height: 20),
                     _buildLabel(Icons.school, "Grade/Class"),
                     _buildGradeDropdown(),
@@ -235,34 +337,99 @@ class _ChildInfoScreenState extends State<ChildInfoScreen> {
     );
   }
 
-  Widget _buildAgeDropdown() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(15),
-        border: Border.all(color: Colors.black12),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<int>(
-          isExpanded: true,
-          value: _selectedAge,
-          hint: const Text('Select age', style: TextStyle(color: Colors.black26, fontSize: 14)),
-          icon: const Icon(Icons.expand_more, color: Colors.black26),
-          items: _ageOptions
-              .map(
-                (int age) => DropdownMenuItem<int>(
-                  value: age,
-                  child: Text(age.toString()),
-                ),
-              )
-              .toList(),
-          onChanged: (int? value) {
-            setState(() {
-              _selectedAge = value;
-            });
-          },
+  Widget _buildDobSelector() {
+    final String formattedDateStr = _selectedDob != null
+        ? '${_selectedDob!.day.toString().padLeft(2, '0')}/${_selectedDob!.month.toString().padLeft(2, '0')}/${_selectedDob!.year}'
+        : 'Select Date of Birth';
+
+    return InkWell(
+      onTap: _pickDateOfBirth,
+      borderRadius: BorderRadius.circular(15),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(15),
+          border: Border.all(color: Colors.black12),
         ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                formattedDateStr,
+                style: TextStyle(
+                  color: _selectedDob != null ? const Color(0xFF1A2B47) : Colors.black26,
+                  fontSize: 14,
+                  fontWeight: _selectedDob != null ? FontWeight.w600 : FontWeight.normal,
+                ),
+              ),
+            ),
+            const Icon(Icons.calendar_today_rounded, color: Colors.blueAccent, size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCalculatedAgeCard(ChildAgeResult ageResult) {
+    final bool isEligible = ageResult.isEligibleAge;
+    final Color cardBg = isEligible ? const Color(0xFFEFF5FF) : const Color(0xFFFFF3F3);
+    final Color cardBorder = isEligible ? const Color(0xFF8ECAFF) : const Color(0xFFFFB2B2);
+    final Color titleColor = isEligible ? const Color(0xFF1A2B47) : const Color(0xFFC62828);
+    final Color subColor = isEligible ? const Color(0xFF275DAD) : const Color(0xFFD32F2F);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isEligible ? Icons.auto_awesome : Icons.warning_amber_rounded,
+                size: 16,
+                color: titleColor,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Current Age: ${ageResult.formattedAge}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: titleColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isEligible
+                ? 'Assessment Group: ${ageResult.assessmentGroupLabel}'
+                : 'Assessment Status: Unavailable (${ageResult.assessmentGroupLabel})',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: subColor,
+            ),
+          ),
+          if (!isEligible) ...[
+            const SizedBox(height: 6),
+            Text(
+              AgeCalculatorService.getAgeGatingMessage(ageResult),
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFFB71C1C),
+                height: 1.3,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

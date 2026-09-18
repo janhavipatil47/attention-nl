@@ -30,6 +30,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   StreamSubscription<AttentionState>? _attentionSubscription;
   bool _isAlertShowing = false;
+  DateTime? _lastAlertShownTime;
   AttentionState _currentAttention = const AttentionState();
   AttentionSummary? _finalAttentionSummary;
   bool _isConnectingTracker = false;
@@ -67,6 +68,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   };
   final Map<String, double> _activityAccuracy = <String, double>{
     for (final String id in _activityIds) id: 0,
+  };
+  final Map<String, Map<int, Map<String, dynamic>>> _levelDetailsMap =
+      <String, Map<int, Map<String, dynamic>>>{
+    for (final String id in _activityIds) id: <int, Map<String, dynamic>>{},
   };
   String _adaptiveMessage = '';
 
@@ -149,6 +154,19 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     }
   }
 
+  void _saveLevelMetrics(String activityId) {
+    final int level = _levelFor(activityId);
+    final double accuracy = _clamp(_performanceFor(activityId));
+    _levelDetailsMap.putIfAbsent(activityId, () => <int, Map<String, dynamic>>{})[level] = <String, dynamic>{
+      'level': level,
+      'accuracy': accuracy,
+      'attempts': math.max(1, _activityAttempts[activityId] ?? 1),
+      'hintsUsed': _hintsUsed[activityId] ?? 0,
+      'completed': true,
+      'attempted': true,
+    };
+  }
+
   void _evaluateLevel(String activityId) {
     final double accuracy = _clamp(_performanceFor(activityId));
     final int level = _levelFor(activityId);
@@ -168,12 +186,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       }
       _activityAccuracy[activityId] = accuracy;
     });
+    _saveLevelMetrics(activityId);
     _tts.speak(_adaptiveMessage);
   }
 
   void _advanceToNextLevel(String activityId) {
     final int level = _levelFor(activityId);
     if (level >= 3 || _performanceFor(activityId) < 80) return;
+    _saveLevelMetrics(activityId);
     setState(() {
       _unlockedLevels[activityId] = math.max(
         _unlockedLevels[activityId] ?? 1,
@@ -182,12 +202,18 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       _activityLevels[activityId] = level + 1;
       _activityAccuracy[activityId] = _clamp(_performanceFor(activityId));
       _adaptiveMessage = 'Great job! Welcome to Level ${level + 1}!';
-    });
-    _tts.speak(_adaptiveMessage);
-    Future<void>.delayed(const Duration(milliseconds: 700), () {
-      if (mounted && _currentActivityId == activityId)
+      if (_currentActivityId == activityId) {
         _resetCurrentActivityForLevel();
+      }
     });
+    _saveLevelMetrics(activityId);
+    if (activityId == 'audio') {
+      _tts.speak(
+        'Great job! Welcome to Level ${level + 1}! Can you find the letter $_targetLetter?',
+      );
+    } else {
+      _tts.speak(_adaptiveMessage);
+    }
   }
 
   List<String> get _activeLowercaseLetters =>
@@ -267,7 +293,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         _startTracing();
         break;
       case 4:
-        _numberTableComplete = false;
+        _initializeNumberTable();
         break;
       case 5:
         _animalCountingComplete = false;
@@ -276,6 +302,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       case 6:
         _dicePathComplete = false;
         _initializeDicePath();
+        break;
+      case 7:
+        _shapeDetectiveComplete = false;
+        _initializeShapeDetective();
         break;
       case 8:
         _initializeLetterSorter();
@@ -286,9 +316,11 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         _targetLetter = _audioTargetForLevel;
         break;
       case 10:
+        _matchUpComplete = false;
         _initializeMatchUpForest();
         break;
       case 11:
+        _readWords.clear();
         _readingRainbowComplete = false;
         _selectedWordForSpeech = null;
         break;
@@ -462,10 +494,9 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       const Offset(160, 160), // End of bottom line
     ],
     'B': [
-      const Offset(40, 40), const Offset(40, 160), // vertical stem
-      const Offset(40, 100), const Offset(115, 55), const Offset(115, 100),
-      const Offset(40, 100), const Offset(115, 115), const Offset(115, 160),
-      const Offset(40, 160),
+      const Offset(40, 30), const Offset(40, 170), // Vertical stem
+      const Offset(40, 30), const Offset(110, 30), const Offset(130, 50), const Offset(130, 85), const Offset(110, 100), const Offset(40, 100), // Top loop
+      const Offset(50, 100), const Offset(120, 100), const Offset(140, 125), const Offset(140, 150), const Offset(120, 170), const Offset(40, 170), // Bottom loop
     ],
     'O': [
       const Offset(70, 40),
@@ -742,7 +773,11 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     });
 
     if (state.alertNeeded && !_isAlertShowing) {
-      _showAlertPopup();
+      final DateTime now = DateTime.now();
+      if (_lastAlertShownTime == null ||
+          now.difference(_lastAlertShownTime!).inSeconds >= 30) {
+        _showAlertPopup();
+      }
     } else if (!state.alertNeeded && _isAlertShowing) {
       _dismissAlertPopup();
     }
@@ -760,6 +795,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   void _showAlertPopup() {
     if (_isAlertShowing || !mounted) return;
     _isAlertShowing = true;
+    _lastAlertShownTime = DateTime.now();
     _tts.stop();
     _tts.speak('Look at the screen!');
 
@@ -807,6 +843,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 const SizedBox(height: 22),
                 ElevatedButton.icon(
                   onPressed: () {
+                    _lastAlertShownTime = DateTime.now();
                     AttentionTrackerService.instance.resetAlert();
                     _dismissAlertPopup();
                   },
@@ -831,6 +868,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       },
     ).then((_) {
       _isAlertShowing = false;
+      _lastAlertShownTime = DateTime.now();
     });
   }
 
@@ -1232,7 +1270,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _resetLetterBuilder() {
     setState(() {
-      _currentBuildLetter = ['d', 'b', 'p', 'l'][math.Random().nextInt(4)];
+      _currentBuildLetter = _levelFor('builder') == 1 ? 'l' : (_levelFor('builder') == 2 ? 'p' : 'b');
       _letterBuilt = false;
       _letterParts.clear();
       _placedLetterCards.clear();
@@ -1249,19 +1287,35 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _initializeNumberTable() {
     setState(() {
-      // Already initialized in state variables
+      for (final Map<String, dynamic> row in _numberTable) {
+        row['completed'] = false;
+        row['digits'] = '';
+        row['words'] = '';
+      }
+      _numberTableComplete = false;
+      _numberTableFeedback = '';
     });
   }
 
   void _initializeAnimalCounting() {
     setState(() {
       _animalNumberConnections.clear();
+      _animalCountingComplete = false;
       final math.Random random = math.Random();
+      final Set<int> usedCounts = <int>{};
       for (final Map<String, dynamic> group in _animalGroups) {
-        group['count'] = 1 + random.nextInt(_animalMaximum);
+        int count;
+        do {
+          count = 1 + random.nextInt(_animalMaximum);
+        } while (usedCounts.contains(count) && usedCounts.length < _animalMaximum);
+        usedCounts.add(count);
+        group['count'] = count;
         group['selected'] = false;
       }
-      _showCrossOutMode = _levelFor('animals') == 3;
+      if (_animalGroups.isNotEmpty) {
+        _animalGroups[0]['selected'] = true;
+      }
+      _showCrossOutMode = false;
     });
   }
 
@@ -1290,8 +1344,29 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _initializeShapeDetective() {
+    final int level = _levelFor('shapes');
     setState(() {
-      _collectedShapes.updateAll((key, value) => false);
+      _shapeDetectiveComplete = false;
+      _collectedShapes.clear();
+      if (level == 1) {
+        _collectedShapes['Triangle'] = false;
+        _collectedShapes['Circle'] = false;
+        _collectedShapes['Square'] = false;
+      } else if (level == 2) {
+        _collectedShapes['Triangle'] = false;
+        _collectedShapes['Circle'] = false;
+        _collectedShapes['Square'] = false;
+        _collectedShapes['Rectangle'] = false;
+        _collectedShapes['Oval'] = false;
+      } else {
+        _collectedShapes['Triangle'] = false;
+        _collectedShapes['Circle'] = false;
+        _collectedShapes['Square'] = false;
+        _collectedShapes['Rectangle'] = false;
+        _collectedShapes['Oval'] = false;
+        _collectedShapes['Star'] = false;
+        _collectedShapes['Diamond'] = false;
+      }
     });
   }
 
@@ -1824,8 +1899,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       // completed. At that point award the successful level attempt so the
       // adaptive progression can move on instead of remaining on the same UI.
       setState(() {
-        _activityAttempts['tracing'] = 1;
-        _correctAnswers['tracing'] = 1;
+        _activityAttempts['tracing'] = math.max(1, _activityAttempts['tracing'] ?? 1);
+        _correctAnswers['tracing'] = math.max(1, _correctAnswers['tracing'] ?? 1);
         _activityAccuracy['tracing'] = 100;
       });
       _advanceToNextLevel('tracing');
@@ -3035,32 +3110,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 color: Color(0xFF1A2B47),
               ),
             ),
-            const SizedBox(height: 20),
-
-            // Cross-out mode toggle
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.orange.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.orange, width: 2),
-              ),
-              child: Row(
-                children: [
-                  const Text("Cross-out mode:", style: TextStyle(fontSize: 16)),
-                  const Spacer(),
-                  Switch(
-                    value: _showCrossOutMode,
-                    onChanged: (value) {
-                      setState(() {
-                        _showCrossOutMode = value;
-                      });
-                    },
-                  ),
-                ],
+            const SizedBox(height: 8),
+            Text(
+              "Count the animals and tap the matching number!",
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade700,
               ),
             ),
-
             const SizedBox(height: 20),
 
             // Main content area
@@ -3069,12 +3126,11 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
               children: [
                 // Animal groups on the left
                 Expanded(
-                  flex: 2,
+                  flex: 3,
                   child: Column(
                     children: _animalGroups.asMap().entries.map((entry) {
-                      final index = entry.key;
                       final animal = entry.value;
-                      final isSelected = animal['selected'];
+                      final isSelected = animal['selected'] == true;
                       final isConnected = _animalNumberConnections.containsKey(
                         animal['animal'],
                       );
@@ -3083,175 +3139,173 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                           _animalNumberConnections[animal['animal']] ==
                               animal['count'];
 
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? Colors.blue.withOpacity(0.2)
-                              : Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: !isConnected
-                                ? Colors.grey
-                                : isCorrectConnection
-                                ? Colors.green
-                                : Colors.red,
-                            width: isConnected ? 3 : 2,
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            for (var a in _animalGroups) {
+                              a['selected'] = false;
+                            }
+                            animal['selected'] = true;
+                          });
+                          _tts.speak('${animal['animal']}');
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.blue.withOpacity(0.15)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? Colors.blue
+                                  : (!isConnected
+                                      ? Colors.grey.shade300
+                                      : isCorrectConnection
+                                      ? Colors.green
+                                      : Colors.red),
+                              width: isSelected ? 3 : (isConnected ? 3 : 1.5),
+                            ),
+                            boxShadow: [
+                              if (isSelected)
+                                BoxShadow(
+                                  color: Colors.blue.withOpacity(0.2),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                            ],
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Animal display with cross-out functionality
-                            GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  // Toggle selection
-                                  for (var a in _animalGroups) {
-                                    a['selected'] = false;
-                                  }
-                                  animal['selected'] = true;
-                                });
-                                _tts.speak('${animal['animal']}');
-                              },
-                              child: Row(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
                                   // Animal emojis
                                   Expanded(
                                     child: Wrap(
-                                      spacing: 4,
-                                      runSpacing: 4,
+                                      spacing: 6,
+                                      runSpacing: 6,
                                       children: List.generate(
                                         animal['count'],
-                                        (dotIndex) => Container(
-                                          width: 24,
-                                          height: 24,
-                                          child: Stack(
-                                            children: [
-                                              Text(
-                                                animal['emoji'],
-                                                style: const TextStyle(
-                                                  fontSize: 20,
-                                                ),
-                                              ),
-                                              if (_showCrossOutMode &&
-                                                  dotIndex <
-                                                      animal['count'] ~/ 2)
-                                                Positioned.fill(
-                                                  child: Container(
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.red
-                                                          .withOpacity(0.3),
-                                                      shape: BoxShape.circle,
-                                                      border: Border.all(
-                                                        color: Colors.red,
-                                                        width: 2,
-                                                      ),
-                                                    ),
-                                                    child: const Icon(
-                                                      Icons.close,
-                                                      size: 12,
-                                                      color: Colors.red,
-                                                    ),
-                                                  ),
-                                                ),
-                                            ],
+                                        (dotIndex) => Text(
+                                          animal['emoji'],
+                                          style: const TextStyle(
+                                            fontSize: 24,
                                           ),
                                         ),
                                       ),
                                     ),
                                   ),
 
-                                  // Animal name only (count hidden for challenge)
+                                  // Animal name label
                                   Container(
                                     padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
+                                      horizontal: 10,
+                                      vertical: 6,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: Colors.blue.withOpacity(0.1),
+                                      color: isSelected
+                                          ? Colors.blue.shade600
+                                          : Colors.blue.withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                     child: Text(
-                                      animal['animal'],
-                                      style: const TextStyle(
-                                        fontSize: 14,
+                                      animal['animal'].toString().toUpperCase(),
+                                      style: TextStyle(
+                                        fontSize: 13,
                                         fontWeight: FontWeight.bold,
+                                        color: isSelected
+                                            ? Colors.white
+                                            : Colors.blue.shade900,
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
 
-                            if (isConnected)
-                              Container(
-                                margin: const EdgeInsets.only(top: 8),
-                                padding: const EdgeInsets.all(4),
-                                decoration: BoxDecoration(
-                                  color: isCorrectConnection
-                                      ? Colors.green.withOpacity(0.2)
-                                      : Colors.red.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  isCorrectConnection
-                                      ? 'Connected to ${_animalNumberConnections[animal['animal']]}'
-                                      : 'Try again',
-                                  style: TextStyle(
-                                    fontSize: 12,
+                              if (isConnected)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
                                     color: isCorrectConnection
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontWeight: FontWeight.bold,
+                                        ? Colors.green.withOpacity(0.2)
+                                        : Colors.red.withOpacity(0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    isCorrectConnection
+                                        ? 'Connected to ${_animalNumberConnections[animal['animal']]}'
+                                        : 'Selected ${_animalNumberConnections[animal['animal']]} — Try again!',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: isCorrectConnection
+                                          ? Colors.green.shade800
+                                          : Colors.red.shade800,
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       );
                     }).toList(),
                   ),
                 ),
 
-                const SizedBox(width: 20),
+                const SizedBox(width: 16),
 
-                // Number buttons in center
-                SizedBox(
-                  width: 80,
-                  child: Column(
-                    children:
-                        List<int>.generate(
-                              _animalMaximum,
-                              (int index) => index + 1,
-                            )
-                            .map(
-                              (number) => Container(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                width: 60,
-                                height: 60,
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    _connectAnimalToNumber(number);
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blue,
-                                    foregroundColor: Colors.white,
-                                    shape: const CircleBorder(),
-                                    padding: const EdgeInsets.all(16),
-                                  ),
-                                  child: Text(
-                                    number.toString(),
-                                    style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
+                // Number buttons on the right grid/wrap
+                Expanded(
+                  flex: 2,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: List<int>.generate(
+                        _animalMaximum,
+                        (int index) => index + 1,
+                      ).map((number) {
+                        return SizedBox(
+                          width: 50,
+                          height: 50,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              _connectAnimalToNumber(number);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blue.shade600,
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                            )
-                            .toList(),
+                              padding: EdgeInsets.zero,
+                            ),
+                            child: Text(
+                              number.toString(),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ),
               ],
@@ -3264,9 +3318,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 decoration: BoxDecoration(
                   color: Colors.green.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.green, width: 2),
                 ),
                 child: const Text(
-                  "Perfect! You matched all animals with their counts!",
+                  "Great job! You matched all animals with their correct counts!",
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -3280,32 +3335,38 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     );
   }
 
-  Color _getAnimalColor(String animal) {
-    switch (animal) {
-      case 'mouse':
-        return Colors.grey;
-      case 'penguin':
-        return Colors.black;
-      case 'elephant':
-        return Colors.brown;
-      default:
-        return Colors.blue;
-    }
-  }
-
   void _connectAnimalToNumber(int number) {
-    // Find selected animal
-    final selectedAnimal = _animalGroups.firstWhere(
-      (animal) => animal['selected'],
-      orElse: () => {'animal': '', 'count': 0, 'selected': false},
+    // Find explicitly selected animal or default to first unconnected group
+    Map<String, dynamic> selectedAnimal = _animalGroups.firstWhere(
+      (animal) => animal['selected'] == true,
+      orElse: () {
+        return _animalGroups.firstWhere(
+          (animal) => !_animalNumberConnections.containsKey(animal['animal']),
+          orElse: () => _animalGroups.isNotEmpty ? _animalGroups.first : <String, dynamic>{},
+        );
+      },
     );
 
-    if (selectedAnimal['animal'].isNotEmpty) {
-      final bool isCorrect = number == selectedAnimal['count'];
+    final String animalName = (selectedAnimal['animal'] ?? '').toString();
+    final int targetCount = (selectedAnimal['count'] ?? 0) as int;
+
+    if (animalName.isNotEmpty) {
+      final bool isCorrect = number == targetCount;
       _recordAttempt('animals', isCorrect);
       setState(() {
-        _animalNumberConnections[selectedAnimal['animal']] = number;
-        selectedAnimal['selected'] = false;
+        _animalNumberConnections[animalName] = number;
+        for (var a in _animalGroups) {
+          a['selected'] = false;
+        }
+
+        // Auto-select the next unconnected animal group for seamless experience
+        final nextUnconnected = _animalGroups.firstWhere(
+          (a) => !_animalNumberConnections.containsKey(a['animal']),
+          orElse: () => <String, dynamic>{},
+        );
+        if (nextUnconnected.isNotEmpty) {
+          nextUnconnected['selected'] = true;
+        }
 
         // Check if all animals are connected
         if (_animalNumberConnections.length == _animalGroups.length) {
@@ -3326,6 +3387,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           }
         } else if (!isCorrect) {
           _tts.speak('Try again. Count the animals carefully.');
+        } else {
+          _tts.speak('Correct! Count the next animal.');
         }
       });
     } else {
@@ -3708,6 +3771,19 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   // NEW: Geometric Shape Detective
   Widget _buildShapeDetective() {
+    final int level = _levelFor('shapes');
+    final String promptText = level == 2
+        ? "Tap parts of the space rocket to identify all 5 shapes (Triangle, Circle, Square, Rectangle, Oval)!"
+        : level == 3
+            ? "Tap parts of the cyber robot to identify all 7 shapes (Triangle, Circle, Square, Rectangle, Oval, Star, Diamond)!"
+            : "Tap parts of the duck to identify shapes (Triangle, Circle, Square)!";
+
+    final String completionMessage = level == 2
+        ? "Excellent! You found all 5 shapes in the space rocket!"
+        : level == 3
+            ? "Excellent! You found all 7 shapes in the cyber robot!"
+            : "Excellent! You found all shapes in the duck!";
+
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -3724,229 +3800,36 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             ),
             const SizedBox(height: 20),
 
-            const Text(
-              "Tap parts of the duck to identify shapes!",
-              style: TextStyle(fontSize: 16, color: Colors.black54),
+            Text(
+              promptText,
+              style: const TextStyle(fontSize: 16, color: Colors.black54),
               textAlign: TextAlign.center,
             ),
 
             const SizedBox(height: 30),
 
-            // Duck illustration with tap zones
-            Container(
-              width: 300,
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.lightBlue.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.blue, width: 2),
-              ),
-              child: Stack(
-                children: [
-                  // Duck body (oval)
-                  Positioned(
-                    left: 100,
-                    top: 80,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('body', 'Oval'),
-                      child: Container(
-                        width: 80,
-                        height: 60,
-                        decoration: BoxDecoration(
-                          color: Colors.yellow.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(40),
-                          border: Border.all(color: Colors.orange, width: 2),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Body',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck head (circle)
-                  Positioned(
-                    left: 60,
-                    top: 60,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('head', 'Circle'),
-                      child: Container(
-                        width: 50,
-                        height: 50,
-                        decoration: BoxDecoration(
-                          color: Colors.yellow.withOpacity(0.8),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.orange, width: 2),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            'Head',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck beak (triangle)
-                  Positioned(
-                    left: 30,
-                    top: 75,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('beak', 'Triangle'),
-                      child: Container(
-                        width: 30,
-                        height: 30,
-                        child: CustomPaint(
-                          painter: TrianglePainter(Colors.orange),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck eye (circle)
-                  Positioned(
-                    left: 70,
-                    top: 70,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('eye', 'Circle'),
-                      child: Container(
-                        width: 15,
-                        height: 15,
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.grey, width: 1),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck wing (oval)
-                  Positioned(
-                    left: 120,
-                    top: 90,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('wing', 'Oval'),
-                      child: Container(
-                        width: 40,
-                        height: 30,
-                        decoration: BoxDecoration(
-                          color: Colors.yellow.withOpacity(0.6),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.orange, width: 1),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck tail (triangle)
-                  Positioned(
-                    left: 170,
-                    top: 90,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('tail', 'Triangle'),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        child: CustomPaint(
-                          painter: TrianglePainter(Colors.orange),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Duck feet (squares)
-                  Positioned(
-                    left: 100,
-                    top: 160,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('feet', 'Square'),
-                      child: Container(
-                        width: 25,
-                        height: 25,
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(2),
-                          border: Border.all(color: Colors.red, width: 2),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  Positioned(
-                    left: 130,
-                    top: 160,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('feet', 'Square'),
-                      child: Container(
-                        width: 25,
-                        height: 25,
-                        decoration: BoxDecoration(
-                          color: Colors.orange.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(2),
-                          border: Border.all(color: Colors.red, width: 2),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  // Water ripples (squares)
-                  Positioned(
-                    left: 40,
-                    top: 140,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('water', 'Square'),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.5),
-                          borderRadius: BorderRadius.circular(2),
-                          border: Border.all(color: Colors.blue, width: 1),
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  Positioned(
-                    left: 180,
-                    top: 140,
-                    child: GestureDetector(
-                      onTap: () => _collectShape('water', 'Square'),
-                      child: Container(
-                        width: 20,
-                        height: 20,
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.5),
-                          borderRadius: BorderRadius.circular(2),
-                          border: Border.all(color: Colors.blue, width: 1),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            // Level-specific geometric diagram with tap zones
+            _buildShapeDiagram(level),
 
             const SizedBox(height: 30),
 
             // Collection bins
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 _buildCollectionBin('Triangle', Colors.red),
                 _buildCollectionBin('Circle', Colors.blue),
                 _buildCollectionBin('Square', Colors.green),
+                if (level >= 2) ...[
+                  _buildCollectionBin('Rectangle', Colors.purple),
+                  _buildCollectionBin('Oval', Colors.orange),
+                ],
+                if (level >= 3) ...[
+                  _buildCollectionBin('Star', Colors.amber),
+                  _buildCollectionBin('Diamond', Colors.teal),
+                ],
               ],
             ),
 
@@ -3954,7 +3837,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
             // Progress text
             Text(
-              "Shapes found: ${_collectedShapes.values.where((collected) => collected).length}/3",
+              "Shapes found: ${_collectedShapes.values.where((collected) => collected).length}/${_collectedShapes.length}",
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
 
@@ -3966,9 +3849,9 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                   color: Colors.green.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: const Text(
-                  "Excellent! You found all the shapes in the duck!",
-                  style: TextStyle(
+                child: Text(
+                  completionMessage,
+                  style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.green,
@@ -3981,12 +3864,664 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     );
   }
 
+  Widget _buildShapeDiagram(int level) {
+    if (level == 2) {
+      // Level 2: Space Rocket 🚀 (5 Target Shapes: Triangle, Circle, Square, Rectangle, Oval)
+      return Container(
+        width: 300,
+        height: 220,
+        decoration: BoxDecoration(
+          color: const Color(0xFF0F172A),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.indigo, width: 2),
+        ),
+        child: Stack(
+          children: [
+            // Background Stars (Decorative Circles)
+            Positioned(
+              left: 20,
+              top: 20,
+              child: GestureDetector(
+                onTap: () => _collectShape('cosmic moon', 'Circle'),
+                child: Container(
+                  width: 25,
+                  height: 25,
+                  decoration: const BoxDecoration(
+                    color: Colors.amberAccent,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 25,
+              top: 25,
+              child: GestureDetector(
+                onTap: () => _collectShape('space star', 'Circle'),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.9),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ),
+
+            // Solar Panel Wing Left (Oval)
+            Positioned(
+              left: 25,
+              top: 90,
+              child: GestureDetector(
+                onTap: () => _collectShape('left solar panel', 'Oval'),
+                child: Container(
+                  width: 45,
+                  height: 25,
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: const Center(
+                    child: Text('Solar', style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  ),
+                ),
+              ),
+            ),
+
+            // Solar Panel Wing Right (Oval)
+            Positioned(
+              right: 25,
+              top: 90,
+              child: GestureDetector(
+                onTap: () => _collectShape('right solar panel', 'Oval'),
+                child: Container(
+                  width: 45,
+                  height: 25,
+                  decoration: BoxDecoration(
+                    color: Colors.orangeAccent.withOpacity(0.9),
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                  child: const Center(
+                    child: Text('Solar', style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  ),
+                ),
+              ),
+            ),
+
+            // Rocket Nose Cone (Triangle at Top)
+            Positioned(
+              left: 125,
+              top: 15,
+              child: GestureDetector(
+                onTap: () => _collectShape('nose cone', 'Triangle'),
+                child: SizedBox(
+                  width: 50,
+                  height: 45,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.redAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Rocket Body (Rectangle / Main Cabin)
+            Positioned(
+              left: 110,
+              top: 60,
+              child: GestureDetector(
+                onTap: () => _collectShape('rocket cabin', 'Rectangle'),
+                child: Container(
+                  width: 80,
+                  height: 90,
+                  decoration: BoxDecoration(
+                    color: Colors.lightBlueAccent,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.blue.shade900, width: 2),
+                  ),
+                  child: const Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Cabin',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Porthole Window (Circle inside body)
+            Positioned(
+              left: 130,
+              top: 85,
+              child: GestureDetector(
+                onTap: () => _collectShape('porthole window', 'Circle'),
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.cyanAccent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text('Window', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+
+            // Left Wing / Fin (Triangle)
+            Positioned(
+              left: 70,
+              top: 115,
+              child: GestureDetector(
+                onTap: () => _collectShape('left fin', 'Triangle'),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.orangeAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Right Wing / Fin (Triangle)
+            Positioned(
+              left: 190,
+              top: 115,
+              child: GestureDetector(
+                onTap: () => _collectShape('right fin', 'Triangle'),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.orangeAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Engine Thruster Nozzle (Square)
+            Positioned(
+              left: 130,
+              top: 153,
+              child: GestureDetector(
+                onTap: () => _collectShape('engine nozzle', 'Square'),
+                child: Container(
+                  width: 40,
+                  height: 35,
+                  decoration: BoxDecoration(
+                    color: Colors.amber.shade800,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: Colors.deepOrange, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text('Engine', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (level == 3) {
+      // Level 3: Cyber Robot 🤖 (7 Target Shapes: Triangle, Circle, Square, Rectangle, Oval, Star, Diamond)
+      return Container(
+        width: 300,
+        height: 220,
+        decoration: BoxDecoration(
+          color: const Color(0xFF1E293B),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.purpleAccent, width: 2),
+        ),
+        child: Stack(
+          children: [
+            // Robot Antenna (Triangle at top center)
+            Positioned(
+              left: 135,
+              top: 8,
+              child: GestureDetector(
+                onTap: () => _collectShape('antenna tip', 'Triangle'),
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.yellowAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Shoulder Pad Left (Oval)
+            Positioned(
+              left: 65,
+              top: 105,
+              child: GestureDetector(
+                onTap: () => _collectShape('left shoulder', 'Oval'),
+                child: Container(
+                  width: 35,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.purpleAccent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+
+            // Shoulder Pad Right (Oval)
+            Positioned(
+              right: 65,
+              top: 105,
+              child: GestureDetector(
+                onTap: () => _collectShape('right shoulder', 'Oval'),
+                child: Container(
+                  width: 35,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.purpleAccent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+
+            // Robot Head (Square)
+            Positioned(
+              left: 115,
+              top: 36,
+              child: GestureDetector(
+                onTap: () => _collectShape('robot head', 'Square'),
+                child: Container(
+                  width: 70,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey.shade300,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(bottom: 2),
+                      child: Text('Head', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Left Eye (Circle)
+            Positioned(
+              left: 125,
+              top: 48,
+              child: GestureDetector(
+                onTap: () => _collectShape('left eye', 'Circle'),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.cyanAccent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+
+            // Right Eye (Circle)
+            Positioned(
+              left: 155,
+              top: 48,
+              child: GestureDetector(
+                onTap: () => _collectShape('right eye', 'Circle'),
+                child: Container(
+                  width: 18,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.cyanAccent,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.blue, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+
+            // Star Badge on Forehead (Star)
+            Positioned(
+              left: 139,
+              top: 38,
+              child: GestureDetector(
+                onTap: () => _collectShape('hero badge', 'Star'),
+                child: const Icon(Icons.star_rounded, color: Colors.amberAccent, size: 22),
+              ),
+            ),
+
+            // Robot Body (Rectangle / Chassis)
+            Positioned(
+              left: 100,
+              top: 98,
+              child: GestureDetector(
+                onTap: () => _collectShape('robot chassis', 'Rectangle'),
+                child: Container(
+                  width: 100,
+                  height: 75,
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade400,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.white, width: 2),
+                  ),
+                  child: const Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: Text('Chassis', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Chest Core (Triangle inside body)
+            Positioned(
+              left: 112,
+              top: 120,
+              child: GestureDetector(
+                onTap: () => _collectShape('energy core', 'Triangle'),
+                child: SizedBox(
+                  width: 32,
+                  height: 32,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.purpleAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Power Crystal (Diamond inside body)
+            Positioned(
+              left: 156,
+              top: 122,
+              child: GestureDetector(
+                onTap: () => _collectShape('power crystal', 'Diamond'),
+                child: SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CustomPaint(
+                    painter: DiamondPainter(Colors.tealAccent),
+                  ),
+                ),
+              ),
+            ),
+
+            // Left Wheel / Foot (Circle)
+            Positioned(
+              left: 105,
+              top: 176,
+              child: GestureDetector(
+                onTap: () => _collectShape('left wheel', 'Circle'),
+                child: Container(
+                  width: 35,
+                  height: 35,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade800,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.yellowAccent, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text('Wheel', style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+
+            // Right Wheel / Foot (Circle)
+            Positioned(
+              left: 160,
+              top: 176,
+              child: GestureDetector(
+                onTap: () => _collectShape('right wheel', 'Circle'),
+                child: Container(
+                  width: 35,
+                  height: 35,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade800,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.yellowAccent, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text('Wheel', style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      // Level 1: Duck Diagram 🦆 (3 Target Shapes: Triangle, Circle, Square)
+      return Container(
+        width: 300,
+        height: 200,
+        decoration: BoxDecoration(
+          color: Colors.lightBlue.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.blue, width: 2),
+        ),
+        child: Stack(
+          children: [
+            // Duck body (oval)
+            Positioned(
+              left: 100,
+              top: 80,
+              child: GestureDetector(
+                onTap: () => _collectShape('body', 'Oval'),
+                child: Container(
+                  width: 80,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(40),
+                    border: Border.all(color: Colors.orange, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'Body',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck head (circle)
+            Positioned(
+              left: 60,
+              top: 60,
+              child: GestureDetector(
+                onTap: () => _collectShape('head', 'Circle'),
+                child: Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.withOpacity(0.8),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.orange, width: 2),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'Head',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck beak (triangle)
+            Positioned(
+              left: 30,
+              top: 75,
+              child: GestureDetector(
+                onTap: () => _collectShape('beak', 'Triangle'),
+                child: SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.orange),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck eye (circle)
+            Positioned(
+              left: 70,
+              top: 70,
+              child: GestureDetector(
+                onTap: () => _collectShape('eye', 'Circle'),
+                child: Container(
+                  width: 15,
+                  height: 15,
+                  decoration: BoxDecoration(
+                    color: Colors.black,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey, width: 1),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck wing (oval)
+            Positioned(
+              left: 120,
+              top: 90,
+              child: GestureDetector(
+                onTap: () => _collectShape('wing', 'Oval'),
+                child: Container(
+                  width: 40,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: Colors.yellow.withOpacity(0.6),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.orange, width: 1),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck tail (triangle)
+            Positioned(
+              left: 170,
+              top: 90,
+              child: GestureDetector(
+                onTap: () => _collectShape('tail', 'Triangle'),
+                child: SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: CustomPaint(
+                    painter: TrianglePainter(Colors.orange),
+                  ),
+                ),
+              ),
+            ),
+
+            // Duck feet (squares)
+            Positioned(
+              left: 100,
+              top: 160,
+              child: GestureDetector(
+                onTap: () => _collectShape('feet', 'Square'),
+                child: Container(
+                  width: 25,
+                  height: 25,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 130,
+              top: 160,
+              child: GestureDetector(
+                onTap: () => _collectShape('feet', 'Square'),
+                child: Container(
+                  width: 25,
+                  height: 25,
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                ),
+              ),
+            ),
+
+            // Water ripples (squares)
+            Positioned(
+              left: 40,
+              top: 140,
+              child: GestureDetector(
+                onTap: () => _collectShape('water', 'Square'),
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: Colors.blue, width: 1),
+                  ),
+                ),
+              ),
+            ),
+
+            Positioned(
+              left: 180,
+              top: 140,
+              child: GestureDetector(
+                onTap: () => _collectShape('water', 'Square'),
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(2),
+                    border: Border.all(color: Colors.blue, width: 1),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
   Widget _buildCollectionBin(String shape, Color color) {
     final isCollected = _collectedShapes[shape] ?? false;
 
     return Container(
-      width: 100,
-      height: 120,
+      width: 85,
+      height: 105,
       decoration: BoxDecoration(
         color: isCollected
             ? color.withOpacity(0.3)
@@ -3999,8 +4534,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         children: [
           // Shape icon
           Container(
-            width: 40,
-            height: 40,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
               color: color.withOpacity(0.2),
               borderRadius: BorderRadius.circular(8),
@@ -4008,20 +4543,20 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
             child: Center(child: _buildShapeIcon(shape, color)),
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Shape name
           Text(
             shape,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 12,
               fontWeight: FontWeight.bold,
               color: isCollected ? color : Colors.grey,
             ),
           ),
 
           if (isCollected)
-            const Icon(Icons.check_circle, color: Colors.green, size: 20),
+            const Icon(Icons.check_circle, color: Colors.green, size: 16),
         ],
       ),
     );
@@ -4035,26 +4570,58 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           height: 0,
           decoration: BoxDecoration(
             border: Border(
-              top: BorderSide(width: 20, color: color),
-              bottom: BorderSide(width: 20, color: Colors.transparent),
-              left: BorderSide(width: 20, color: Colors.transparent),
-              right: BorderSide(width: 20, color: Colors.transparent),
+              top: BorderSide(width: 16, color: color),
+              bottom: BorderSide(width: 16, color: Colors.transparent),
+              left: BorderSide(width: 16, color: Colors.transparent),
+              right: BorderSide(width: 16, color: Colors.transparent),
             ),
           ),
         );
       case 'Circle':
         return Container(
-          width: 30,
-          height: 30,
+          width: 24,
+          height: 24,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         );
       case 'Square':
         return Container(
-          width: 25,
-          height: 25,
+          width: 20,
+          height: 20,
           decoration: BoxDecoration(
             color: color,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      case 'Rectangle':
+        return Container(
+          width: 26,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(3),
+          ),
+        );
+      case 'Oval':
+        return Container(
+          width: 26,
+          height: 16,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(12),
+          ),
+        );
+      case 'Star':
+        return Icon(Icons.star_rounded, color: color, size: 24);
+      case 'Diamond':
+        return Transform.rotate(
+          angle: 0.785398,
+          child: Container(
+            width: 15,
+            height: 15,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
         );
       default:
@@ -4063,21 +4630,24 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _collectShape(String part, String shape) {
+    final bool isTargetShape = _collectedShapes.containsKey(shape);
+    _recordAttempt('shapes', isTargetShape);
     setState(() {
-      // Only collect if the shape exists in our collection bins
+      // Only collect if the shape exists in our current level collection bins
       if (_collectedShapes.containsKey(shape)) {
         _collectedShapes[shape] = true;
-        _tts.speak('Great! You found a $shape in the ${part}');
+        _tts.speak('Great! You found a $shape in the $part');
 
-        // Check if all shapes are collected
+        // Check if all shapes for this level are collected
         if (_collectedShapes.values.every((collected) => collected)) {
           _shapeDetectiveComplete = true;
           _tts.speak('Amazing! You found all the shapes!');
           _advanceToNextLevel('shapes');
         }
       } else {
+        final String expectedList = _collectedShapes.keys.join(', ');
         _tts.speak(
-          'That\'s a $shape, but we\'re looking for Triangle, Circle, or Square!',
+          'That\'s a $shape, but we are looking for $expectedList!',
         );
       }
     });
@@ -4329,11 +4899,13 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                   .map(
                     (letter) => GestureDetector(
                       onTap: () {
+                        final bool isCorrect = letter == _targetLetter;
+                        _recordAttempt('audio', isCorrect);
                         setState(() {
                           _selectedAudioLetter = letter;
                         });
 
-                        if (letter == _targetLetter) {
+                        if (isCorrect) {
                           _tts.speak("Great job!");
                           setState(() {
                             _audioExplorerComplete = true;
@@ -4445,11 +5017,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                         .map(
                           (letter) => GestureDetector(
                             onTap: () {
+                              final bool isMatch = _selectedUppercase != null &&
+                                  _letterPairs[letter] == _selectedUppercase;
+                              if (_selectedUppercase != null) {
+                                _recordAttempt('matching', isMatch);
+                              }
                               setState(() {
                                 _selectedLowercase = letter;
-                                if (_selectedUppercase != null &&
-                                    _letterPairs[letter] ==
-                                        _selectedUppercase) {
+                                if (isMatch) {
                                   _matchedPairs.add(letter);
                                   _matchedPairs.add(_selectedUppercase!);
                                   _tts.speak("Perfect match!");
@@ -4505,11 +5080,14 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                         .map(
                           (letter) => GestureDetector(
                             onTap: () {
+                              final bool isMatch = _selectedLowercase != null &&
+                                  _letterPairs[_selectedLowercase!] == letter;
+                              if (_selectedLowercase != null) {
+                                _recordAttempt('matching', isMatch);
+                              }
                               setState(() {
                                 _selectedUppercase = letter;
-                                if (_selectedLowercase != null &&
-                                    _letterPairs[_selectedLowercase!] ==
-                                        letter) {
+                                if (isMatch) {
                                   _matchedPairs.add(_selectedLowercase!);
                                   _matchedPairs.add(letter);
                                   _tts.speak("Perfect match!");
@@ -4670,8 +5248,11 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                           // Speech controls and results
                           if (_selectedWordForSpeech == word) ...[
                             const SizedBox(height: 8),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              cross: WrapCrossAlignment.center,
+                              spacing: 8,
+                              runSpacing: 6,
                               children: [
                                 // Microphone button
                                 GestureDetector(
@@ -4679,24 +5260,44 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                                       ? _stopListening()
                                       : _startListening(word),
                                   child: Container(
-                                    padding: const EdgeInsets.all(8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                                     decoration: BoxDecoration(
                                       color: _isListening
                                           ? Colors.red
                                           : Colors.blue,
-                                      shape: BoxShape.circle,
+                                      borderRadius: BorderRadius.circular(16),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: (_isListening ? Colors.red : Colors.blue).withOpacity(0.3),
+                                          blurRadius: 4,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
                                     ),
-                                    child: Icon(
-                                      _isListening ? Icons.stop : Icons.mic,
-                                      color: Colors.white,
-                                      size: 20,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _isListening ? Icons.stop : Icons.mic,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _isListening ? 'Stop' : 'Read Aloud 🎤',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ),
 
-                                // Speech result
+                                // Speech result card if speech was attempted
                                 if (_speechResults.containsKey(word)) ...[
-                                  const SizedBox(width: 8),
                                   Container(
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 8,
@@ -4706,8 +5307,8 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                                       color:
                                           _speechResults[word]!.toLowerCase() ==
                                               word.toLowerCase()
-                                          ? Colors.green.withOpacity(0.2)
-                                          : Colors.orange.withOpacity(0.2),
+                                          ? Colors.green.withOpacity(0.15)
+                                          : Colors.orange.withOpacity(0.15),
                                       borderRadius: BorderRadius.circular(8),
                                       border: Border.all(
                                         color:
@@ -4723,7 +5324,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                                           CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'You said: ${_speechResults[word]}',
+                                          'Heard: "${_speechResults[word]}"',
                                           style: TextStyle(
                                             fontSize: 10,
                                             fontWeight: FontWeight.w600,
@@ -4732,7 +5333,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                                                         .toLowerCase() ==
                                                     word.toLowerCase()
                                                 ? Colors.green.shade700
-                                                : Colors.orange.shade700,
+                                                : Colors.orange.shade800,
                                           ),
                                         ),
                                         Text(
@@ -4743,6 +5344,45 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                                           ),
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                ],
+
+                                // Manual practice fallback button (Only shown if mic isn't supported OR voice attempt was unmatched)
+                                if (!_readWords.contains(word) &&
+                                    (!_speechEnabled ||
+                                     (_speechResults.containsKey(word) &&
+                                      _speechResults[word]!.toLowerCase() != word.toLowerCase()))) ...[
+                                  GestureDetector(
+                                    onTap: () {
+                                      _recordAttempt('reading', true);
+                                      _tts.speak('Great reading! $word!');
+                                      setState(() {
+                                        _readWords.add(word);
+                                        if (_readingWords.every(_readWords.contains)) {
+                                          _readingRainbowComplete = true;
+                                          _advanceToNextLevel('reading');
+                                        }
+                                      });
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: Colors.grey.shade400),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.touch_app, color: Colors.grey, size: 12),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Manual Practice (No Mic)',
+                                            style: TextStyle(color: Colors.black87, fontSize: 9, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -4828,6 +5468,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _nextActivity() {
     _evaluateLevel(_currentActivityId);
+    _saveLevelMetrics(_currentActivityId);
     // Allow progression regardless of completion status
     if (_currentActivity < 11) {
       setState(() {
@@ -4863,6 +5504,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   Future<void> _finalizeAssessmentAndOpenReport() async {
     setState(() => _isFinalizing = true);
     try {
+      _saveLevelMetrics(_currentActivityId);
+      try {
+        _finalAttentionSummary = await AttentionTrackerService.instance.stopTracking();
+      } catch (e) {
+        debugPrint('Error stopping attention tracker in 6-year assessment: $e');
+      }
       final Map<String, double> skillScores = _calculateDomainScores();
       final Map<String, String> skillLabels = <String, String>{
         'reading_language': 'Reading & Language',
@@ -5049,6 +5696,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       'currentActivityIndex': _currentActivity,
       'tracingAccuracy': (_tracingAccuracy * 100).round(),
       'readWordsCompleted': _readWords.length,
+      'attentionPercentage': _finalAttentionSummary?.attentionPercentage ?? 100.0,
+      'attentiveSeconds': _finalAttentionSummary?.attentiveSeconds ?? 0.0,
+      'distractedSeconds': _finalAttentionSummary?.distractedSeconds ?? 0.0,
+      'totalAttentionTrackedSeconds': _finalAttentionSummary?.totalSeconds ?? 0.0,
+      'distractionCount': _finalAttentionSummary?.distractionCount ?? 0,
+      'openCvAttentionTracked': (_finalAttentionSummary != null && _finalAttentionSummary!.totalSeconds > 0),
       'adaptiveLearning': <String, dynamic>{
         'selectedLevels': _activityLevels,
         'unlockedLevels': _unlockedLevels,
@@ -5058,6 +5711,12 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
         ),
         'attempts': _activityAttempts,
         'hintsUsed': _hintsUsed,
+        'levelDetails': _levelDetailsMap.map(
+          (String actId, Map<int, Map<String, dynamic>> levelsMap) => MapEntry<String, dynamic>(
+            actId,
+            levelsMap.map((int lvl, Map<String, dynamic> data) => MapEntry<String, dynamic>(lvl.toString(), data)),
+          ),
+        ),
       },
     };
   }
@@ -5249,4 +5908,29 @@ class TracingPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class DiamondPainter extends CustomPainter {
+  final Color color;
+
+  DiamondPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+
+    final path = Path();
+    path.moveTo(size.width / 2, 0);
+    path.lineTo(size.width, size.height / 2);
+    path.lineTo(size.width / 2, size.height);
+    path.lineTo(0, size.height / 2);
+    path.close();
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

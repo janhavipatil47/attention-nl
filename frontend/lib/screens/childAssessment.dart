@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/age_calculator_service.dart';
 import '../services/assessment_report_service.dart';
 import '../services/attention_tracker_service.dart';
 import 'report.dart';
@@ -55,8 +56,21 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   bool _isFinalizing = false;
   final DateTime _assessmentStartedAt = DateTime.now();
 
+  final Map<String, int> _activityAttempts = <String, int>{};
+  final Map<String, int> _correctAnswers = <String, int>{};
+
+  void _recordAttempt(String activityId, bool isCorrect) {
+    setState(() {
+      _activityAttempts[activityId] = (_activityAttempts[activityId] ?? 0) + 1;
+      if (isCorrect) {
+        _correctAnswers[activityId] = (_correctAnswers[activityId] ?? 0) + 1;
+      }
+    });
+  }
+
   StreamSubscription<AttentionState>? _attentionSubscription;
   bool _isAlertShowing = false;
+  DateTime? _lastAlertShownTime;
   AttentionState _currentAttention = const AttentionState();
   AttentionSummary? _finalAttentionSummary;
   bool _isConnectingTracker = false;
@@ -106,7 +120,11 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     });
 
     if (state.alertNeeded && !_isAlertShowing) {
-      _showAlertPopup();
+      final DateTime now = DateTime.now();
+      if (_lastAlertShownTime == null ||
+          now.difference(_lastAlertShownTime!).inSeconds >= 30) {
+        _showAlertPopup();
+      }
     } else if (!state.alertNeeded && _isAlertShowing) {
       _dismissAlertPopup();
     }
@@ -124,6 +142,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   void _showAlertPopup() {
     if (_isAlertShowing || !mounted) return;
     _isAlertShowing = true;
+    _lastAlertShownTime = DateTime.now();
     _speak('Look at the screen!');
 
     showDialog<void>(
@@ -170,6 +189,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                 const SizedBox(height: 22),
                 ElevatedButton.icon(
                   onPressed: () {
+                    _lastAlertShownTime = DateTime.now();
                     AttentionTrackerService.instance.resetAlert();
                     _dismissAlertPopup();
                   },
@@ -194,6 +214,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       },
     ).then((_) {
       _isAlertShowing = false;
+      _lastAlertShownTime = DateTime.now();
     });
   }
 
@@ -205,10 +226,8 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
 
   Future<void> _loadChildAge() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final int? storedAgeValue = prefs.getInt('childAgeValue');
-    final String rawAge = prefs.getString('childAge') ?? '';
-    final RegExpMatch? ageMatch = RegExp(r'\d+').firstMatch(rawAge);
-    final int parsedAge = storedAgeValue ?? int.tryParse(ageMatch?.group(0) ?? '') ?? 3;
+    final ChildAgeResult? ageResult = AgeCalculatorService.getAgeResultFromPrefs(prefs);
+    final int parsedAge = ageResult?.years ?? prefs.getInt('childAgeValue') ?? 3;
 
     if (!mounted) {
       return;
@@ -570,11 +589,12 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       final Map<String, double> skillScores = _calculateDomainScores();
       final Map<String, dynamic> rawMetrics = _buildRawMetrics();
       final Map<String, String> skillLabels = <String, String>{
+        'reading_language': 'Reading & Language',
         'listening': 'Listening',
-        'writing_motor': 'Writing & Motor',
-        'math': 'Math',
+        'writing_tracing': 'Writing & Tracing',
+        'math': 'Math & Number Sense',
         'attention': 'Attention & Focus',
-        'memory': 'Memory & Sequencing',
+        'memory': 'Memory & Matching',
       };
       final List<String> assessedActivities = _isAge45
           ? <String>[
@@ -591,7 +611,7 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
               'Dino Feeding',
               'Count Objects',
               'Find Dots',
-              'Big Circle',
+              'Size Comparison',
               'Number Sequence',
             ]
           : <String>[
@@ -599,13 +619,13 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
               'Rhyme Match',
               'Animal Sound',
               'Picture Pair',
-              'Stroke Practice',
-              'Connect Dots',
-              'Trace Line',
-              'Curved Shape',
+              'Writing Wizard',
+              'Busy Shapes',
+              'Color Garden',
+              'Missing Letter',
               'Count Objects',
               'Find Dots',
-              'Big Circle',
+              'Size Comparison',
               'Number Sequence',
             ];
 
@@ -641,89 +661,51 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
   }
 
   Map<String, double> _calculateDomainScores() {
-    final int listeningAttempts = <int?>[
-      _soundMatchChoice,
-      _rhymeChoice,
-      _animalChoice,
-      _picturePairChoice,
-    ].where((int? value) => value != null).length;
-    final double soundScore = _choiceScore(_soundMatchChoice, 0);
-    final double rhymeScore = _choiceScore(_rhymeChoice, 0);
-    final double animalScore = _choiceScore(_animalChoice, 0);
-    final double picturePairScore = _choiceScore(_picturePairChoice, 0);
-    final double listeningScore = _average(<double>[
-      soundScore,
-      rhymeScore,
-      animalScore,
-      picturePairScore,
-    ]);
-
     final int motorTarget = _isAge45 ? 4 : 3;
-    final double writingWizardScore = _clamp(_writingWizardProgress * 100);
-    final double busyShapesScore =
-        _clamp((_busyShapesPlaced.length / motorTarget) * 100);
-    final double gardenScore = _clamp((_gardenColored.length / motorTarget) * 100);
-    final double missingLetterScore = _choiceScore(_missingLetterChoice, 0);
-    final double arrowScore = _clamp((_arrowTracingProgress ?? 0) * 100);
-    final double circleScore = _clamp(_circleCompletionPercent * 100);
-    final double dinoScore = _clamp((_dinoFedItems.length / _dinoTarget) * 100);
-    final double writingScore = _average(<double>[
-      writingWizardScore,
-      busyShapesScore,
-      gardenScore,
-      missingLetterScore,
-      arrowScore,
-      circleScore,
-      dinoScore,
-    ]);
 
-    final double countScore = _clamp((_countTapped.length / _countTarget) * 100);
-    final double dotsScore = _choiceScore(_dotsChoice, 1);
-    final double sizeScore = _choiceScore(_sizeChoice, 0);
-    final double sequenceScore = _choiceScore(_sequenceChoice, 1);
-    final double memoryScore = _average(<double>[
-      countScore,
-      dotsScore,
-      sizeScore,
-      sequenceScore,
-      missingLetterScore,
-    ]);
-    final double mathScore = _average(<double>[
-      countScore,
-      dotsScore,
-      sizeScore,
-      sequenceScore,
-    ]);
+    final double? soundScore = _soundMatchChoice != null ? _choiceScore(_soundMatchChoice, 0) : null;
+    final double? rhymeScore = _rhymeChoice != null ? _choiceScore(_rhymeChoice, 0) : null;
+    final double? animalScore = _animalChoice != null ? _choiceScore(_animalChoice, 0) : null;
+    final double? picturePairScore = _picturePairChoice != null ? _choiceScore(_picturePairChoice, 0) : null;
+    final double? missingLetterScore = _missingLetterChoice != null ? _choiceScore(_missingLetterChoice, 0) : null;
 
-    final int fullyCompleted = <bool>[
-      soundScore >= 75,
-      rhymeScore >= 75,
-      animalScore >= 75,
-      picturePairScore >= 75,
-      writingWizardScore >= 75,
-      busyShapesScore >= 70,
-      gardenScore >= 70,
-      arrowScore >= 70,
-      circleScore >= 70,
-      dinoScore >= 70,
-      countScore >= 70,
-      dotsScore >= 75,
-      sizeScore >= 75,
-      sequenceScore >= 75,
-    ].where((bool v) => v).length;
-    final double engagement = _clamp((_attemptedCount / 15) * 100);
-    final double completionQuality = _clamp((fullyCompleted / 14) * 100);
-    final double fallbackAttention = _clamp((engagement * 0.55) + (completionQuality * 0.45));
+    final double? writingWizardScore = _writingWizardProgress > 0 ? _clamp(_writingWizardProgress * 100) : null;
+    final double? busyShapesScore = _busyShapesPlaced.isNotEmpty ? _clamp((_busyShapesPlaced.length / motorTarget) * 100) : null;
+    final double? gardenScore = _gardenColored.isNotEmpty ? _clamp((_gardenColored.length / motorTarget) * 100) : null;
+    final double? arrowScore = _arrowTracingProgress != null ? _clamp((_arrowTracingProgress ?? 0) * 100) : null;
+    final double? circleScore = _circleCompletionPercent > 0 ? _clamp(_circleCompletionPercent * 100) : null;
+
+    final double? countScore = _countTapped.isNotEmpty ? _clamp((_countTapped.length / _countTarget) * 100) : null;
+    final double? dotsScore = _dotsChoice != null ? _choiceScore(_dotsChoice, 1) : null;
+    final double? sizeScore = _sizeChoice != null ? _choiceScore(_sizeChoice, 0) : null;
+
+    final double? sequenceScore = _sequenceChoice != null ? _choiceScore(_sequenceChoice, 1) : null;
+    final double? dinoScore = _dinoFedItems.isNotEmpty ? _clamp((_dinoFedItems.length / _dinoTarget) * 100) : null;
+
+    double averageNonNull(List<double?> list, double fallback) {
+      final List<double> valid = list.whereType<double>().toList();
+      if (valid.isEmpty) return fallback;
+      return _average(valid);
+    }
+
+    final double listeningScore = averageNonNull([soundScore, animalScore], 0);
+    final double readingLanguageScore = averageNonNull([rhymeScore, picturePairScore, missingLetterScore], 0);
+    final double writingScore = averageNonNull([writingWizardScore, busyShapesScore, gardenScore, arrowScore, circleScore], 0);
+    final double mathScore = averageNonNull([countScore, dotsScore, sizeScore], 0);
+    final double memoryScore = sequenceScore ?? 0;
+
+    final double fallbackAttention = dinoScore ?? _clamp(((_attemptedCount / 15) * 100 * 0.5));
     final double attentionScore = (_finalAttentionSummary != null && _finalAttentionSummary!.totalSeconds > 0)
         ? _clamp(_finalAttentionSummary!.attentionPercentage)
         : fallbackAttention;
 
     return <String, double>{
-      'listening': _clamp(listeningScore),
-      'writing_motor': _clamp(writingScore),
+      'reading_language': _clamp(readingLanguageScore),
+      'writing_tracing': _clamp(writingScore),
       'math': _clamp(mathScore),
       'attention': _clamp(attentionScore),
       'memory': _clamp(memoryScore),
+      'listening': _clamp(listeningScore),
     };
   }
 
@@ -747,15 +729,35 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
     ].where((bool done) => done).length;
     final int sessionDurationSeconds =
         DateTime.now().difference(_assessmentStartedAt).inSeconds;
+
+    final double soundScore = _choiceScore(_soundMatchChoice, 0);
+    final double rhymeScore = _choiceScore(_rhymeChoice, 0);
+    final double animalScore = _choiceScore(_animalChoice, 0);
+    final double picturePairScore = _choiceScore(_picturePairChoice, 0);
+    final double missingLetterScore = _choiceScore(_missingLetterChoice, 0);
+
+    final int motorTarget = _isAge45 ? 4 : 3;
+    final double writingWizardScore = _clamp(_writingWizardProgress * 100);
+    final double busyShapesScore = _clamp((_busyShapesPlaced.length / motorTarget) * 100);
+    final double gardenScore = _clamp((_gardenColored.length / motorTarget) * 100);
+    final double arrowScore = _clamp((_arrowTracingProgress ?? 0) * 100);
+    final double circleScore = _clamp(_circleCompletionPercent * 100);
+
+    final double countScore = _clamp((_countTapped.length / _countTarget) * 100);
+    final double dotsScore = _choiceScore(_dotsChoice, 1);
+    final double sizeScore = _choiceScore(_sizeChoice, 0);
+    final double sequenceScore = _choiceScore(_sequenceChoice, 1);
+    final double dinoScore = _clamp((_dinoFedItems.length / _dinoTarget) * 100);
+
     final double objectiveAccuracy = _average(<double>[
-      _choiceScore(_soundMatchChoice, 0),
-      _choiceScore(_rhymeChoice, 0),
-      _choiceScore(_animalChoice, 0),
-      _choiceScore(_picturePairChoice, 0),
-      _choiceScore(_dotsChoice, 1),
-      _choiceScore(_sizeChoice, 0),
-      _choiceScore(_sequenceChoice, 1),
-      _choiceScore(_missingLetterChoice, 0),
+      soundScore,
+      rhymeScore,
+      animalScore,
+      picturePairScore,
+      dotsScore,
+      sizeScore,
+      sequenceScore,
+      missingLetterScore,
     ]);
 
     return <String, dynamic>{
@@ -784,6 +786,93 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       'totalAttentionTrackedSeconds': _finalAttentionSummary?.totalSeconds ?? 0.0,
       'distractionCount': _finalAttentionSummary?.distractionCount ?? 0,
       'openCvAttentionTracked': (_finalAttentionSummary != null && _finalAttentionSummary!.totalSeconds > 0),
+      'adaptiveLearning': <String, dynamic>{
+        'selectedLevels': <String, int>{
+          'sound_match': 1,
+          'rhyme_match': 1,
+          'animal_sound': 1,
+          'picture_pair': 1,
+          'writing_wizard': 1,
+          'busy_shapes': 1,
+          'garden': 1,
+          'missing_letter': 1,
+          'arrow_tracing': 1,
+          'circle_creation': 1,
+          'dino_feeding': 1,
+          'count_objects': 1,
+          'find_dots': 1,
+          'size_choice': 1,
+          'sequence_choice': 1,
+        },
+        'unlockedLevels': <String, int>{
+          'sound_match': 1,
+          'rhyme_match': 1,
+          'animal_sound': 1,
+          'picture_pair': 1,
+          'writing_wizard': 1,
+          'busy_shapes': 1,
+          'garden': 1,
+          'missing_letter': 1,
+          'arrow_tracing': 1,
+          'circle_creation': 1,
+          'dino_feeding': 1,
+          'count_objects': 1,
+          'find_dots': 1,
+          'size_choice': 1,
+          'sequence_choice': 1,
+        },
+        'accuracy': <String, double>{
+          'sound_match': soundScore,
+          'rhyme_match': rhymeScore,
+          'animal_sound': animalScore,
+          'picture_pair': picturePairScore,
+          'writing_wizard': writingWizardScore,
+          'busy_shapes': busyShapesScore,
+          'garden': gardenScore,
+          'missing_letter': missingLetterScore,
+          'arrow_tracing': arrowScore,
+          'circle_creation': circleScore,
+          'dino_feeding': dinoScore,
+          'count_objects': countScore,
+          'find_dots': dotsScore,
+          'size_choice': sizeScore,
+          'sequence_choice': sequenceScore,
+        },
+        'attempts': <String, int>{
+          'sound_match': _activityAttempts['sound_match'] ?? (_soundMatchChoice != null ? 1 : 0),
+          'rhyme_match': _activityAttempts['rhyme_match'] ?? (_rhymeChoice != null ? 1 : 0),
+          'animal_sound': _activityAttempts['animal_sound'] ?? (_animalChoice != null ? 1 : 0),
+          'picture_pair': _activityAttempts['picture_pair'] ?? (_picturePairChoice != null ? 1 : 0),
+          'writing_wizard': _activityAttempts['writing_wizard'] ?? (_writingWizardProgress > 0 ? 1 : 0),
+          'busy_shapes': _activityAttempts['busy_shapes'] ?? (_busyShapesPlaced.isNotEmpty ? 1 : 0),
+          'garden': _activityAttempts['garden'] ?? (_gardenColored.isNotEmpty ? 1 : 0),
+          'missing_letter': _activityAttempts['missing_letter'] ?? (_missingLetterChoice != null ? 1 : 0),
+          'arrow_tracing': _activityAttempts['arrow_tracing'] ?? ((_arrowTracingProgress ?? 0) > 0 ? 1 : 0),
+          'circle_creation': _activityAttempts['circle_creation'] ?? (_circleCompletionPercent > 0 ? 1 : 0),
+          'dino_feeding': _activityAttempts['dino_feeding'] ?? (_dinoFedItems.isNotEmpty ? 1 : 0),
+          'count_objects': _activityAttempts['count_objects'] ?? (_countTapped.isNotEmpty ? 1 : 0),
+          'find_dots': _activityAttempts['find_dots'] ?? (_dotsChoice != null ? 1 : 0),
+          'size_choice': _activityAttempts['size_choice'] ?? (_sizeChoice != null ? 1 : 0),
+          'sequence_choice': _activityAttempts['sequence_choice'] ?? (_sequenceChoice != null ? 1 : 0),
+        },
+        'hintsUsed': <String, int>{
+          'sound_match': 0,
+          'rhyme_match': 0,
+          'animal_sound': 0,
+          'picture_pair': 0,
+          'writing_wizard': 0,
+          'busy_shapes': 0,
+          'garden': 0,
+          'missing_letter': 0,
+          'arrow_tracing': 0,
+          'circle_creation': 0,
+          'dino_feeding': 0,
+          'count_objects': 0,
+          'find_dots': 0,
+          'size_choice': 0,
+          'sequence_choice': 0,
+        },
+      },
     };
   }
 
@@ -847,7 +936,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                 _soundMatchChoice,
                 emojis[index],
                 labels[index],
-                (i) => setState(() => _soundMatchChoice = i),
+                (i) {
+                  setState(() => _soundMatchChoice = i);
+                  _recordAttempt('sound_match', i == 0);
+                },
               );
             }),
           ),
@@ -892,7 +984,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
             index,
             _rhymeChoice,
             options[index],
-            (i) => setState(() => _rhymeChoice = i),
+            (i) {
+              setState(() => _rhymeChoice = i);
+              _recordAttempt('rhyme_match', i == 0);
+            },
           );
         }),
       ),
@@ -907,9 +1002,18 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       child: Wrap(
         spacing: 10,
         children: [
-          _emojiChoice(0, _animalChoice, '🐱', 'Cat', (i) => setState(() => _animalChoice = i)),
-          _emojiChoice(1, _animalChoice, '🐶', 'Dog', (i) => setState(() => _animalChoice = i)),
-          _emojiChoice(2, _animalChoice, '🐮', 'Cow', (i) => setState(() => _animalChoice = i)),
+          _emojiChoice(0, _animalChoice, '🐱', 'Cat', (i) {
+            setState(() => _animalChoice = i);
+            _recordAttempt('animal_sound', i == 0);
+          }),
+          _emojiChoice(1, _animalChoice, '🐶', 'Dog', (i) {
+            setState(() => _animalChoice = i);
+            _recordAttempt('animal_sound', i == 0);
+          }),
+          _emojiChoice(2, _animalChoice, '🐮', 'Cow', (i) {
+            setState(() => _animalChoice = i);
+            _recordAttempt('animal_sound', i == 0);
+          }),
         ],
       ),
     );
@@ -929,7 +1033,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
             index,
             _picturePairChoice,
             pairs[index],
-            (i) => setState(() => _picturePairChoice = i),
+            (i) {
+              setState(() => _picturePairChoice = i);
+              _recordAttempt('picture_pair', i == 0);
+            },
           );
         }),
       ),
@@ -1600,7 +1707,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       child: Row(
         children: List<Widget>.generate(groups.length, (index) {
           final Widget card =
-              _dotsGroup(index, _dotsChoice, groups[index], (i) => setState(() => _dotsChoice = i));
+              _dotsGroup(index, _dotsChoice, groups[index], (i) {
+                setState(() => _dotsChoice = i);
+                _recordAttempt('find_dots', i == 1);
+              });
           return Padding(
             padding: EdgeInsets.only(right: index == groups.length - 1 ? 0 : 8),
             child: card,
@@ -1616,9 +1726,15 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
       instruction: 'Tap the bigger circle.',
       child: Row(
         children: [
-          _sizeCircle(0, _sizeChoice, _isAge45 ? 40 : 34, (i) => setState(() => _sizeChoice = i)),
+          _sizeCircle(0, _sizeChoice, _isAge45 ? 40 : 34, (i) {
+            setState(() => _sizeChoice = i);
+            _recordAttempt('size_choice', i == 0);
+          }),
           const SizedBox(width: 12),
-          _sizeCircle(1, _sizeChoice, _isAge45 ? 22 : 18, (i) => setState(() => _sizeChoice = i)),
+          _sizeCircle(1, _sizeChoice, _isAge45 ? 22 : 18, (i) {
+            setState(() => _sizeChoice = i);
+            _recordAttempt('size_choice', i == 0);
+          }),
         ],
       ),
     );
@@ -1646,7 +1762,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
                 index,
                 _sequenceChoice,
                 options[index],
-                (i) => setState(() => _sequenceChoice = i),
+                (i) {
+                  setState(() => _sequenceChoice = i);
+                  _recordAttempt('sequence_choice', i == 1);
+                },
               );
             }),
           ),
@@ -1806,7 +1925,10 @@ class _ChildAssessmentScreenState extends State<ChildAssessmentScreen>
             children: List<Widget>.generate(options.length, (index) {
               final bool isSelected = _missingLetterChoice == index;
               return GestureDetector(
-                onTap: () => setState(() => _missingLetterChoice = index),
+                onTap: () {
+                  setState(() => _missingLetterChoice = index);
+                  _recordAttempt('missing_letter', index == 0);
+                },
                 child: Container(
                   width: 60,
                   height: 60,

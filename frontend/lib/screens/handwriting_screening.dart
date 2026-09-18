@@ -11,7 +11,7 @@ import 'sixYearAssessment.dart';
 class HandwritingScreeningScreen extends StatefulWidget {
   const HandwritingScreeningScreen({super.key, required this.childAge});
 
-  final int childAge;
+  final num childAge;
 
   @override
   State<HandwritingScreeningScreen> createState() => _HandwritingScreeningScreenState();

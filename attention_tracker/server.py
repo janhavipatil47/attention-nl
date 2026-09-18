@@ -21,7 +21,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-tracker_engine = AttentionTrackerEngine(camera_index=0, look_away_threshold_seconds=2.0)
+tracker_engine = AttentionTrackerEngine(camera_index=0, look_away_threshold_seconds=4.5)
 
 @app.get("/health")
 async def health_check():
@@ -94,7 +94,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", type=str, default="127.0.0.1", help="Host address (default 127.0.0.1)")
     parser.add_argument("--port", type=int, default=8008, help="Port number (default 8008)")
     parser.add_argument("--camera", type=int, default=0, help="Camera device index (default 0)")
-    parser.add_argument("--threshold", type=float, default=2.0, help="Look-away alert threshold seconds (default 2.0)")
+    parser.add_argument("--threshold", type=float, default=4.5, help="Look-away alert threshold seconds (default 4.5)")
     parser.add_argument("--no-window", action="store_true", help="Disable the visible OpenCV preview window")
     args = parser.parse_args()
 
