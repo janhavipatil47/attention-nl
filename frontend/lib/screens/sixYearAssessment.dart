@@ -111,46 +111,50 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   double _performanceFor(String id) {
-    // Number-table level progression is based on completing its assigned rows.
-    // Individual choices remain in the attempt metrics for reporting, but an
-    // exploratory wrong tap must not prevent a completed table from unlocking.
-    if (id == 'numbers') {
-      return _activeNumberRowIndexes
-              .where((int index) => _numberTable[index]['completed'] == true)
-              .length /
-          _activeNumberRowIndexes.length *
-          100;
-    }
-    if (id == 'animals') {
-      return _animalGroups
-              .where(
-                (Map<String, dynamic> group) =>
-                    _animalNumberConnections[group['animal']] == group['count'],
-              )
-              .length /
-          _animalGroups.length *
-          100;
-    }
-    if ((_activityAttempts[id] ?? 0) > 0) return _activityAccuracy[id] ?? 0;
     switch (id) {
+      case 'rhyme':
+        final int targetRhymeCount = _currentBubbles.isEmpty
+            ? (_rhymingWords[_currentRhymeCenter]?.length ?? 1)
+            : _currentBubbles.where((b) => _rhymingWords[_currentRhymeCenter]!.contains(b)).length;
+        return targetRhymeCount == 0
+            ? (_rhymeComplete ? 100 : 0)
+            : _clamp((_poppedBubbles.length / targetRhymeCount) * 100);
+      case 'builder':
+        return _letterBuilderComplete ? 100 : (_placedLetterCards.isNotEmpty ? 50 : 0);
+      case 'image':
+        return _imageSnapComplete
+            ? 100
+            : _clamp((_currentImageIndex / _imageWords.length) * 100);
+      case 'tracing':
+        return _tracingComplete ? 100 : (_tracingAccuracy * 100);
+      case 'numbers':
+        final int done = _numberTable.where((row) => row['completed'] == true).length;
+        return _numberTableComplete ? 100 : _clamp((done / _numberTable.length) * 100);
+      case 'animals':
+        final int done = _animalGroups.where((g) => _animalNumberConnections.containsKey(g['animal'])).length;
+        return _animalCountingComplete ? 100 : _clamp((done / _animalGroups.length) * 100);
+      case 'dice':
+        return _dicePathComplete ? 100 : _clamp((_currentDiceIndex / _diceTargetLength) * 100);
       case 'shapes':
-        return _collectedShapes.values.where((bool value) => value).length /
-            _collectedShapes.length *
-            100;
+        final int collected = _collectedShapes.values.where((bool value) => value).length;
+        return _collectedShapes.isEmpty
+            ? 0
+            : _clamp((collected / _collectedShapes.length) * 100);
       case 'sorter':
-        return _correctPlacements.where((bool value) => value).length /
-            _correctPlacements.length *
-            100;
+        final int correct = _correctPlacements.where((bool value) => value).length;
+        return _correctPlacements.isEmpty
+            ? 0
+            : _clamp((correct / _correctPlacements.length) * 100);
       case 'audio':
         return _audioExplorerComplete ? 100 : 0;
       case 'matching':
         return _matchedPairs.length / (_matchPairTarget * 2) * 100;
       case 'reading':
-        return _readingWords.where(_readWords.contains).length /
-            _readingWords.length *
-            100;
+        return _readingWords.isEmpty
+            ? 0
+            : _clamp((_readWords.where(_readingWords.contains).length / _readingWords.length) * 100);
       default:
-        return 0;
+        return _activityAccuracy[id] ?? 0;
     }
   }
 
@@ -210,6 +214,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     if (activityId == 'audio') {
       _tts.speak(
         'Great job! Welcome to Level ${level + 1}! Can you find the letter $_targetLetter?',
+      );
+    } else if (activityId == 'rhyme') {
+      _tts.speak(
+        'Great job! Welcome to Level ${level + 1}! Find all the words that rhyme with $_currentRhymeCenter!',
       );
     } else {
       _tts.speak(_adaptiveMessage);
@@ -337,10 +345,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     'tree': ['bee', 'see', 'free', 'knee', 'three'],
   };
   final Map<String, List<String>> _distractorWords = {
-    'hand': ['blue', 'jump'],
-    'cat': ['dog', 'fish'],
-    'ball': ['jump'],
-    'tree': ['dog'],
+    'hand': ['blue', 'jump', 'star', 'duck'],
+    'cat': ['dog', 'fish', 'sun', 'pen'],
+    'ball': ['jump', 'frog', 'ship', 'car'],
+    'tree': ['dog', 'hat', 'cup', 'moon'],
   };
   List<String> _currentBubbles = [];
   Set<String> _poppedBubbles = {};
@@ -1246,10 +1254,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
 
   void _selectNewRhymeCenter() {
     setState(() {
-      _currentRhymeCenter =
-          _rhymeCenters[math.Random().nextInt(_rhymeCenters.length)];
-      // Combine rhyming words and distractors
       final int level = _levelFor('rhyme');
+      int centerIndex = (level - 1) % _rhymeCenters.length;
+      _currentRhymeCenter = _rhymeCenters[centerIndex];
+      // Combine rhyming words and distractors for the level
       final int rhymeCount = level == 1
           ? 2
           : level == 2
@@ -1257,7 +1265,9 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           : _rhymingWords[_currentRhymeCenter]!.length;
       final int distractorCount = level == 1
           ? 1
-          : _distractorWords[_currentRhymeCenter]!.length;
+          : level == 2
+          ? 2
+          : 3;
       List<String> allWords = [
         ..._rhymingWords[_currentRhymeCenter]!.take(rhymeCount),
         ..._distractorWords[_currentRhymeCenter]!.take(distractorCount),
@@ -1422,6 +1432,16 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
     }
   }
 
+  bool _isPartValidForSlot(String slot, String part) {
+    if (_currentBuildLetter == 'b') {
+      if (slot == 'stem') return part == 'vertical_line';
+      if (slot == 'upperBowl' || slot == 'lowerBowl') {
+        return part == 'upper_circle' || part == 'lower_circle' || part == 'circle' || part == 'semi_circle';
+      }
+    }
+    return _letterBuildSlots[slot] == part;
+  }
+
   List<String> get _letterBuilderCards => _availableLetterCards;
 
   void _placeLetterCard(String slot, String part) {
@@ -1433,7 +1453,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
           _placedLetterCards.entries
               .where(
                 (MapEntry<String, String> entry) =>
-                    _letterBuildSlots[entry.key] == entry.value,
+                    _isPartValidForSlot(entry.key, entry.value),
               )
               .map((MapEntry<String, String> entry) => entry.value),
         );
@@ -1444,10 +1464,10 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   }
 
   void _checkBuiltLetter() {
-    final bool isCorrect = _letterBuildSlots.entries.every(
-      (MapEntry<String, String> entry) =>
-          _placedLetterCards[entry.key] == entry.value,
-    );
+    final bool isCorrect = _letterBuildSlots.keys.every((String slot) {
+      final String? part = _placedLetterCards[slot];
+      return part != null && _isPartValidForSlot(slot, part);
+    });
     if (!isCorrect) {
       _recordAttempt('builder', false);
       setState(() {
@@ -1466,7 +1486,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
       _letterBuilderCheckedIncorrect = false;
       _letterBuilderFeedback = 'Excellent! Your letter is complete.';
     });
-    _tts.speak('Great job building the letter $_currentBuildLetter!');
+    _tts.speak('Great job building the letter ${_currentBuildLetter.toUpperCase()}!');
     _advanceToNextLevel('builder');
   }
 
@@ -1547,7 +1567,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
   Widget _buildLetterSlot(String slot) {
     final String? placedPart = _placedLetterCards[slot];
     if (placedPart != null) {
-      if (_letterBuildSlots[slot] != placedPart) {
+      if (!_isPartValidForSlot(slot, placedPart)) {
         return Container(
           width: 92,
           height: 92,
@@ -3923,9 +3943,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     borderRadius: BorderRadius.circular(15),
                     border: Border.all(color: Colors.white, width: 1.5),
                   ),
-                  child: const Center(
-                    child: Text('Solar', style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ),
                 ),
               ),
             ),
@@ -3943,9 +3960,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     color: Colors.orangeAccent.withOpacity(0.9),
                     borderRadius: BorderRadius.circular(15),
                     border: Border.all(color: Colors.white, width: 1.5),
-                  ),
-                  child: const Center(
-                    child: Text('Solar', style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: Colors.black87)),
                   ),
                 ),
               ),
@@ -3981,16 +3995,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(color: Colors.blue.shade900, width: 2),
                   ),
-                  child: const Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 4),
-                      child: Text(
-                        'Cabin',
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black87),
-                      ),
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -4008,9 +4012,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     color: Colors.cyanAccent,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: const Center(
-                    child: Text('Window', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
@@ -4056,14 +4057,29 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                 onTap: () => _collectShape('engine nozzle', 'Square'),
                 child: Container(
                   width: 40,
-                  height: 35,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: Colors.amber.shade800,
                     borderRadius: BorderRadius.circular(4),
                     border: Border.all(color: Colors.deepOrange, width: 2),
                   ),
-                  child: const Center(
-                    child: Text('Engine', style: TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+
+            // Launch Platform Base (Rectangle)
+            Positioned(
+              left: 80,
+              top: 188,
+              child: GestureDetector(
+                onTap: () => _collectShape('launch base', 'Rectangle'),
+                child: Container(
+                  width: 140,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.purple.shade400,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.white, width: 2),
                   ),
                 ),
               ),
@@ -4149,13 +4165,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: EdgeInsets.only(bottom: 2),
-                      child: Text('Head', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold)),
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -4220,13 +4229,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.white, width: 2),
                   ),
-                  child: const Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: EdgeInsets.only(top: 2),
-                      child: Text('Chassis', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.white)),
-                    ),
-                  ),
                 ),
               ),
             ),
@@ -4277,9 +4279,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.yellowAccent, width: 2),
                   ),
-                  child: const Center(
-                    child: Text('Wheel', style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.bold)),
-                  ),
                 ),
               ),
             ),
@@ -4297,9 +4296,6 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                     color: Colors.grey.shade800,
                     shape: BoxShape.circle,
                     border: Border.all(color: Colors.yellowAccent, width: 2),
-                  ),
-                  child: const Center(
-                    child: Text('Wheel', style: TextStyle(fontSize: 7, color: Colors.white, fontWeight: FontWeight.bold)),
                   ),
                 ),
               ),
@@ -5250,7 +5246,7 @@ class _SixYearAssessmentScreenState extends State<SixYearAssessmentScreen>
                             const SizedBox(height: 8),
                             Wrap(
                               alignment: WrapAlignment.center,
-                              cross: WrapCrossAlignment.center,
+                              crossAxisAlignment: WrapCrossAlignment.center,
                               spacing: 8,
                               runSpacing: 6,
                               children: [
